@@ -79,14 +79,16 @@
     (l/== d 4)
     (abs-pitcho a)
     (abs-pitcho b)
-    (fd/- a b d)))
+
+    (l/conde [(fd/- a b d)] ;; is a an ~interval _above_ b?
+             [(fd/- b a d)])))
 
 
 (comment (l/run* [q]
            (major-thirdo (pitch->abs-pitch [:E, 4])
                          (pitch->abs-pitch [:C, 4])))
          (map (fn [[a b]] (vector (abs-pitch->pitch a) (abs-pitch->pitch b)))
-              (l/run 5 [q p]
+              (l/run 10 [q p]
                 (major-thirdo q p)))
          (l/run* [p]
            (major-thirdo p (pitch->abs-pitch [:C, 4]))))
