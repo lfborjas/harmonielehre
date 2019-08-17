@@ -74,22 +74,64 @@
 (defn abs-pitcho [p]
   (fd/in p (fd/interval lowest-note highest-note)))
 
-(defn major-thirdo [a b]
-  (l/fresh [d]
-    (l/== d 4)
-    (abs-pitcho a)
-    (abs-pitcho b)
 
-    (l/conde [(fd/- a b d)] ;; is a an ~interval _above_ b?
-             [(fd/- b a d)])))
+;; `intervalo` generates a relation that can detect
+;; if a certain number of semitones exist between two notes.
+;; calling (intervalo 4) would generate a function like:
+;; (defn major-thirdo [a b]
+;;   (l/fresh [d]
+;;     (l/== d 4)
+;;     (abs-pitcho a)
+;;     (abs-pitcho b)
 
+;;     (l/conde [(fd/- a b d)] ;; is a an ~interval _above_ b?
+;;              [(fd/- b a d)])))
+
+(defmacro intervalo [d]
+  `(fn ([pa# pb#]
+        (l/fresh [semitones#]
+          (l/== semitones# ~d)
+          (abs-pitcho pa#)
+          (abs-pitcho pb#)
+          (l/conde [(fd/- pa# pb# semitones#)]
+                   [(fd/- pb# pa# semitones#)])))))
+
+
+(def unisono (intervalo 0))
+(def major-thirdo (intervalo 4))
+(def perfect-fiftho (intervalo 7))
+(def octaveo (intervalo 12))
+
+
+
+(defn major-triado [a b c]
+  (l/conde
+   [(major-thirdo a b) (perfect-fiftho a c)] ;; root position
+   ))
 
 (comment (l/run* [q]
-           (major-thirdo (pitch->abs-pitch [:E, 4])
-                         (pitch->abs-pitch [:C, 4])))
+           (major-thirdo (pitch->abs-pitch [:C, 4])
+                         (pitch->abs-pitch [:E, 4])))
+
+         (l/run* [q]
+           (apply major-triado (map pitch->abs-pitch [[:C 4] [:E 4] [:G 4]])))
+         (l/run 5 [x y z]
+           (major-triado x y z)) ;; get 5 possible major triads
+         (l/run* [q]
+           (unisono (pitch->abs-pitch [:E, 4])
+                         (pitch->abs-pitch [:E, 4])))
          (map (fn [[a b]] (vector (abs-pitch->pitch a) (abs-pitch->pitch b)))
               (l/run 10 [q p]
                 (major-thirdo q p)))
+
+         (map (fn [[a b c]] (vector (abs-pitch->pitch a) (abs-pitch->pitch b) (abs-pitch->pitch c)))
+              (l/run 13 [q p x]
+                (major-triado q p x)))
+
+         (map (fn [[b c]] (vector [:C 4] (abs-pitch->pitch b) (abs-pitch->pitch c)))
+              (l/run* [p x]
+                (major-triado (pitch->abs-pitch [:C 4]) p x)))
+         
          (l/run* [p]
            (major-thirdo p (pitch->abs-pitch [:C, 4]))))
 
