@@ -105,9 +105,9 @@
 
 
 (defn major-triado [a b c]
-  (l/conde
-   [(major-thirdo a b) (perfect-fiftho a c)] ;; root position
-   ))
+  (l/all
+    (major-thirdo a b)
+    (perfect-fiftho a c)))
 
 (comment (l/run* [q]
            (major-thirdo (pitch->abs-pitch [:C, 4])
