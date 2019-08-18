@@ -101,19 +101,6 @@
 (def lowest-note  (pitch->abs-pitch [:A, 0]))
 (def highest-note (pitch->abs-pitch [:C, 8]))
 
-(defn abs-pitcho [p]
-  (fd/in p (fd/interval lowest-note highest-note)))
-
-;; to really get the power of this unlocked, I should be able to define the relation
-;; between a pitch and its absolute pitch, that way, when reasoning about
-;; chords, I could even leave the octaves out and the engine could figure them out.
-#_(l/defne noteo [note]
-  ([ [pc o ap] ]
-   (l/== ap (pitch->abs-pitch [pc o]))
-   (abs-pitcho ap)
-   (fd/in pc (apply fd/domain (concat (keys pitch-classes) (flatten (vals pitch-classes)))))
-   (fd/in o  (fd/interval 0 8))))
-
 (defn noteo [pc o ap]
   (cond
     (not (l/lvar? ap))
