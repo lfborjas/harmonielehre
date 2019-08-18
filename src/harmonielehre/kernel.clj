@@ -104,6 +104,53 @@
 (defn abs-pitcho [p]
   (fd/in p (fd/interval lowest-note highest-note)))
 
+;; to really get the power of this unlocked, I should be able to define the relation
+;; between a pitch and its absolute pitch, that way, when reasoning about
+;; chords, I could even leave the octaves out and the engine could figure them out.
+#_(l/defne noteo [note]
+  ([ [pc o ap] ]
+   (l/== ap (pitch->abs-pitch [pc o]))
+   (abs-pitcho ap)
+   (fd/in pc (apply fd/domain (concat (keys pitch-classes) (flatten (vals pitch-classes)))))
+   (fd/in o  (fd/interval 0 8))))
+
+(defn noteo [pc o ap]
+  (cond
+    (not (l/lvar? ap))
+    (let [[pc-calc o-calc] (abs-pitch->pitch ap)]
+      (l/and* [(l/== pc pc-calc)
+               (l/== o  o-calc)]))
+
+    (not (or (l/lvar? pc) (l/lvar? o)))
+    (let [ap-calc (pitch->abs-pitch [pc o])]
+      (l/== ap ap-calc))
+
+    (not (l/lvar? pc))
+    (l/or*
+     (for [oct (range 0 8) :let [ap-calc (pitch->abs-pitch [pc oct])]]
+       (l/and* [(l/== ap ap-calc) (l/== o oct)])))
+
+    (not (l/lvar? o))
+    (l/or*
+     (for [p-calc (keys pitch-classes) :let [ap-calc (pitch->abs-pitch [p-calc o])]]
+       (l/and* [(l/== ap ap-calc) (l/== pc p-calc)])))
+
+   ;TODO: should also be able to generate all the notes that exist if all the variables are lvars!! 
+    
+    :else
+    (l/fail o)))
+
+(comment
+  (l/run* [q]
+    (noteo :C 5 q)) ;; what's the abs pitch of C5?
+  (l/run* [q x]
+    (noteo :C q x)) ;; all the Cs possible?
+  (l/run* [q x]
+    (noteo q x 60)) ;; what's the pitch (pc,o) of 60?
+  (l/run* [q x]
+    (noteo q 4 x)) ;; all the pitches in an octave
+  )
+
 
 (defn intervalo [distance a b]
   (l/all
