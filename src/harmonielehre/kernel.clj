@@ -135,7 +135,15 @@
      (for [p-calc (keys pitch-classes) :let [ap-calc (pitch->abs-pitch [p-calc o])]]
        (l/and* [(l/== ap ap-calc) (l/== pc p-calc)])))
 
-   ;TODO: should also be able to generate all the notes that exist if all the variables are lvars!! 
+    (and (l/lvar? pc) (l/lvar? o) (l/lvar ap))
+    (l/or*
+     (for [pitches (keys pitch-classes)
+           octaves (range 0 8)
+           :let [apc (pitch->abs-pitch [pitches octaves])]]
+       (l/and*
+        [(l/== ap apc)
+         (l/== pc pitches)
+         (l/== o octaves)])))
     
     :else
     (l/fail o)))
@@ -149,19 +157,24 @@
     (noteo q x 60)) ;; what's the pitch (pc,o) of 60?
   (l/run* [q x]
     (noteo q 4 x)) ;; all the pitches in an octave
+  (l/run 12 [q u x]
+    (noteo q u x) ;; all the pitches
+    )
   )
 
 
-(defn intervalo [distance a b]
+(defn intervalo [distance [xpc xo xap] [ypc yo yap]]
   (l/all
-   (abs-pitcho a)
-   (abs-pitcho b)
-   (l/conde [(fd/- a b distance)]
-            [(fd/- b a distance)])))
+   (noteo xpc xo xap)
+   (noteo ypc yo yap)
+   (l/conde [(fd/- xap yap distance)]
+            [(fd/- yap xap distance)])))
 
 (comment
-  (l/run* [q]
-    (intervalo (:major-third intervals) (pitch->abs-pitch [:C 4]) q)))
+  (l/run* [q u x]
+    (l/fresh [a]
+      ;; get all notes with which C4 has a major third
+      (intervalo (:major-third intervals) [:C 4 a] [q u x]))))
 
 ;; all possible triads
 
@@ -223,8 +236,8 @@
          (l/run* [q]
            (apply major-triado (map pitch->abs-pitch [[:C 4] [:E 4] [:G 4]])))
          
-         (l/run 5 [x y z]
-           (major-triado x y z)) ;; get 5 possible major triads
+         (l/run 5 [xp xo xa yp yo ya zp zo za]
+           (major-triado [xp xo xa] [yp yo ya] [zp zo za])) ;; get 5 possible major triads
 
          (map (fn [[a b c]] (vector (abs-pitch->pitch a) (abs-pitch->pitch b) (abs-pitch->pitch c)))
               (l/run 13 [q p x]
