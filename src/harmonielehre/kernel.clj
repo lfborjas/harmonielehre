@@ -3,6 +3,7 @@
             [clojure.core.logic.fd :as fd]))
 
 ;; a map of pitch classes and their enharmonic equivalents
+;; TODO: fill out the rest of the enharmonics
 (def pitch-classes
   (apply array-map [:C  [:Ass :Bs :Dff]
                     :Cs [:Df]
@@ -17,6 +18,34 @@
                     :As []
                     :B  []]))
 
+(def intervals
+  ;; name -> semitones between notes
+  {:unison 0 :diminished-second 0
+   :minor-second 1 :augmented-unison 1
+   :major-second 2 :diminished-third 2
+   :minor-third 3 :augmented-second 3
+   :major-third 4 :diminished-fourth 4
+   :perfect-fourth 5 :augmented-third 5
+   :diminished-fifth 6 :augmented-fourth 6
+   :perfect-fifth 7 :diminished-sixth 7
+   :minor-sixth 8 :augmented-fifth 8
+   :major-sixth 9 :diminished-seventh 9
+   :minor-seventh 10 :augmented-sixth 10
+   :major-seventh 11 :diminished-octave 11
+   :perfect-octave 12 :augmented-seventh 12 :diminished-ninth 12
+   :minor-ninth 13  :augmented-octave 13
+   :major-ninth 14 :diminished-tenth 14
+   :minor-tenth 15 :augmented-ninth 15
+   :major-tenth 16 :diminished-eleventh 16
+   :perfect-eleventh 17 :augmented-tenth 17
+   :diminished-twelfth 18 :augmented-eleventh 18
+   :perfect-twelfth 19 :tritave 19 :diminished-thirteenth 19
+   :minor-thirteenth 20 :augmented-twelfth 20
+   :major-thirteenth 21 :diminished-fourteenth 21
+   :minor-fourteenth 22 :augmented-thirteenth 22
+   :major-fourteenth 23 :diminished-fifteenth 23
+   :double-octave 24 :perfect-fifteenth 24 :augmented-fourteenth 24})
+
 (defn lookup-pc
   "Take a pitch class and return its position, accounting for enharmonics"
   [pc]
@@ -27,7 +56,6 @@
 
 
 (comment
-  (some #{2} #{1 2 3})
   (lookup-pc :C) ;; 0
   (lookup-pc :B) ;; 11
   (lookup-pc :Ef) ;; 3
@@ -61,7 +89,9 @@
   (pitch->abs-pitch [:Ass 4])
   (pitch->abs-pitch [:A, 0]) ;; 21, lowest piano note
   (pitch->abs-pitch [:C, 8]) ;; 108, highest piano note
+  (:major-third intervals)
   )
+
 
 ;; LOGIC
 
@@ -75,54 +105,60 @@
   (fd/in p (fd/interval lowest-note highest-note)))
 
 
-;; `intervalo` generates a relation that can detect
-;; if a certain number of semitones exist between two notes.
-;; calling (intervalo 4) would generate a function like:
-;; (defn major-thirdo [a b]
-;;   (l/fresh [d]
-;;     (l/== d 4)
-;;     (abs-pitcho a)
-;;     (abs-pitcho b)
+(defn intervalo [distance a b]
+  (l/all
+   (abs-pitcho a)
+   (abs-pitcho b)
+   (l/conde [(fd/- a b distance)]
+            [(fd/- b a distance)])))
 
-;;     (l/conde [(fd/- a b d)] ;; is a an ~interval _above_ b?
-;;              [(fd/- b a d)])))
+(comment
+  (l/run* [q]
+    (intervalo (:major-third intervals) (pitch->abs-pitch [:C 4]) q)))
 
-(defmacro intervalo [d]
-  `(fn ([pa# pb#]
-        (l/fresh [semitones#]
-          (l/== semitones# ~d)
-          (abs-pitcho pa#)
-          (abs-pitcho pb#)
-          (l/conde [(fd/- pa# pb# semitones#)]
-                   [(fd/- pb# pa# semitones#)])))))
-
-
-(def unisono (intervalo 0))
-(def major-thirdo (intervalo 4))
-(def perfect-fiftho (intervalo 7))
-(def octaveo (intervalo 12))
-
-
+;; all possible triads
 
 (defn major-triado [a b c]
   (l/all
-    (major-thirdo a b)
-    (perfect-fiftho a c)))
+    (intervalo (:major-third intervals) a b)
+    (intervalo (:perfect-fifth intervals) a c)))
+
+(defn minor-triado [a b c]
+  (l/all
+   (intervalo (:minor-third intervals) a b)
+   (intervalo (:perfect-fifth intervals) a c)))
+
+(defn chordo [n a b c]
+  (l/conde
+   [(l/== n :maj) (major-triado a b c)]
+   [(l/== n :min) (minor-triado a b c)]))
+
+
+;; all possible inversions
+
+;; all possible chords
 
 (comment (l/run* [q]
-           (major-thirdo (pitch->abs-pitch [:C, 4])
-                         (pitch->abs-pitch [:E, 4])))
+           (intervalo (:major-third intervals)
+                      (pitch->abs-pitch [:C, 4])
+                      (pitch->abs-pitch [:E, 4])))
+
+         (l/run* [q x]
+           (chordo  q
+                    x
+                    (pitch->abs-pitch [:E, 4])
+                    (pitch->abs-pitch [:G, 4])))
+
+         (l/run* [q]
+           (intervalo q
+                      (pitch->abs-pitch [:E, 4])
+                      (pitch->abs-pitch [:G, 4])))
 
          (l/run* [q]
            (apply major-triado (map pitch->abs-pitch [[:C 4] [:E 4] [:G 4]])))
+         
          (l/run 5 [x y z]
            (major-triado x y z)) ;; get 5 possible major triads
-         (l/run* [q]
-           (unisono (pitch->abs-pitch [:E, 4])
-                         (pitch->abs-pitch [:E, 4])))
-         (map (fn [[a b]] (vector (abs-pitch->pitch a) (abs-pitch->pitch b)))
-              (l/run 10 [q p]
-                (major-thirdo q p)))
 
          (map (fn [[a b c]] (vector (abs-pitch->pitch a) (abs-pitch->pitch b) (abs-pitch->pitch c)))
               (l/run 13 [q p x]
@@ -130,9 +166,6 @@
 
          (map (fn [[b c]] (vector [:C 4] (abs-pitch->pitch b) (abs-pitch->pitch c)))
               (l/run* [p x]
-                (major-triado (pitch->abs-pitch [:C 4]) p x)))
-         
-         (l/run* [p]
-           (major-thirdo p (pitch->abs-pitch [:C, 4]))))
+                (major-triado (pitch->abs-pitch [:C 4]) p x))))
 
 
