@@ -123,15 +123,25 @@
     (intervalo (:major-third intervals) a b)
     (intervalo (:perfect-fifth intervals) a c)))
 
+;; TODO: what about voicings and octaves added?
 (defn minor-triado [a b c]
   (l/all
    (intervalo (:minor-third intervals) a b)
    (intervalo (:perfect-fifth intervals) a c)))
 
-(defn chordo [n a b c]
+(defn major-chordo [r a b c]
   (l/conde
-   [(l/== n :maj) (major-triado a b c)]
-   [(l/== n :min) (minor-triado a b c)]))
+   [(l/== a r) (major-triado a b c)]
+   [(l/== c r) ;; first inversion
+    (intervalo (:minor-third intervals) a b)
+    (intervalo (:minor-sixth intervals) a c)]
+   [(l/== b r) ;; second inversion
+    (intervalo (:perfect-fourth intervals) a b)
+    (intervalo (:major-sixth intervals) a c)]))
+
+(defn chordo [n r a b c]
+  (l/conde
+   [(l/== n :maj) (major-chordo r a b c)]))
 
 
 ;; all possible inversions
@@ -143,11 +153,20 @@
                       (pitch->abs-pitch [:C, 4])
                       (pitch->abs-pitch [:E, 4])))
 
+         (l/run* [q x y]
+           (chordo  q
+                    x
+                    y
+                    (pitch->abs-pitch [:E, 4])
+                    (pitch->abs-pitch [:G, 4])))
+
          (l/run* [q x]
            (chordo  q
                     x
                     (pitch->abs-pitch [:E, 4])
-                    (pitch->abs-pitch [:G, 4])))
+                    (pitch->abs-pitch [:G, 4])
+                    (pitch->abs-pitch [:C, 5])))
+         
 
          (l/run* [q]
            (intervalo q
