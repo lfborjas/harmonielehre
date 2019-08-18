@@ -103,25 +103,30 @@
 
 (defn noteo [pc o ap]
   (cond
+    ;; don't know the pitch
     (not (l/lvar? ap))
     (let [[pc-calc o-calc] (abs-pitch->pitch ap)]
       (l/and* [(l/== pc pc-calc)
                (l/== o  o-calc)]))
 
+    ;; don't know the absolute pitch
     (not (or (l/lvar? pc) (l/lvar? o)))
     (let [ap-calc (pitch->abs-pitch [pc o])]
       (l/== ap ap-calc))
 
+    ;; don't know the octave or absolute pitch (all versions of a given pitch class)
     (not (l/lvar? pc))
     (l/or*
      (for [oct (range 0 8) :let [ap-calc (pitch->abs-pitch [pc oct])]]
        (l/and* [(l/== ap ap-calc) (l/== o oct)])))
 
+    ;; only know the octave: all pitch classes (and their absolute pitches) in an octave
     (not (l/lvar? o))
     (l/or*
      (for [p-calc (keys pitch-classes) :let [ap-calc (pitch->abs-pitch [p-calc o])]]
        (l/and* [(l/== ap ap-calc) (l/== pc p-calc)])))
 
+    ;; don't know anything: all possible notes
     (and (l/lvar? pc) (l/lvar? o) (l/lvar ap))
     (l/or*
      (for [pitches (keys pitch-classes)
@@ -144,6 +149,8 @@
     (noteo q x 60)) ;; what's the pitch (pc,o) of 60?
   (l/run* [q x]
     (noteo q 4 x)) ;; all the pitches in an octave
+  (l/run* [q]
+    (noteo :C q 60)) ;; what's the octave of C 60?
   (l/run 12 [q u x]
     (noteo q u x) ;; all the pitches
     )
@@ -196,42 +203,51 @@
 ;; all possible chords
 
 (comment (l/run* [q]
-           (intervalo (:major-third intervals)
-                      (pitch->abs-pitch [:C, 4])
-                      (pitch->abs-pitch [:E, 4])))
+           (l/fresh [a b]
+             (intervalo (:major-third intervals)
+                        [:C, 4, a]
+                        [:E, 4, b])))
 
          (l/run* [q x y]
-           (chordo  q
-                    x
-                    y
-                    (pitch->abs-pitch [:E, 4])
-                    (pitch->abs-pitch [:G, 4])))
+           (l/fresh [a b x1 x2 x3 y1 y2 y3]
+             (l/== x [x1 x2 x3])
+             (l/== y [y1 y2 y3])
+             (chordo  q
+                      [x1 x2 x3]
+                      [y1 y2 y3]
+                      [:E, 4, a]
+                      [:G, 4, b]))) ;; what's a chord where E and G are the 2nd and 3rd notes?
 
          (l/run* [q x]
-           (chordo  q
-                    x
-                    (pitch->abs-pitch [:E, 4])
-                    (pitch->abs-pitch [:G, 4])
-                    (pitch->abs-pitch [:C, 5])))
-         
+           (l/fresh [a b c x1 x2 x3]
+             (l/== x [x1 x2 x3])
+             (chordo  q
+                      x
+                      [:E, 4, a]
+                      [:G, 4, b] 
+                      [:C, 5, c]))) ;; what's the chord where E4, G4 and C5 appear in that order?
+
+
+         (l/run* [x y z]
+           (l/fresh [o ap x1 x2 x3 y1 y2 y3 z1 z2 z3]
+             (l/== x [x1 x2 x3])
+             (l/== y [y1 y2 y3])
+             (l/== z [z1 z2 z3])
+             (l/conde [(l/== 4 o)] [(l/== 5 o)])
+             (chordo  :maj
+                      [:C, o, ap]
+                      x
+                      y
+                      z))) ;; what are all the inversions of C major in octaves 4 and 5?
+
 
          (l/run* [q]
-           (intervalo q
-                      (pitch->abs-pitch [:E, 4])
-                      (pitch->abs-pitch [:G, 4])))
+           (l/fresh [x y] (intervalo q
+                                     [:E, 4, x]
+                                     [:G, 4, y])))
 
-         (l/run* [q]
-           (apply major-triado (map pitch->abs-pitch [[:C 4] [:E 4] [:G 4]])))
-         
          (l/run 5 [xp xo xa yp yo ya zp zo za]
            (major-triado [xp xo xa] [yp yo ya] [zp zo za])) ;; get 5 possible major triads
-
-         (map (fn [[a b c]] (vector (abs-pitch->pitch a) (abs-pitch->pitch b) (abs-pitch->pitch c)))
-              (l/run 13 [q p x]
-                (major-triado q p x)))
-
-         (map (fn [[b c]] (vector [:C 4] (abs-pitch->pitch b) (abs-pitch->pitch c)))
-              (l/run* [p x]
-                (major-triado (pitch->abs-pitch [:C 4]) p x))))
+)
 
 
