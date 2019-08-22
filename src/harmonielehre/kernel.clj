@@ -228,18 +228,18 @@
                       [:C, 5, c]))) ;; what's the chord where E4, G4 and C5 appear in that order?
 
 
-         (l/run* [x y z]
-           (l/fresh [o ap x1 x2 x3 y1 y2 y3 z1 z2 z3]
-             (l/== x [x1 x2 x3])
-             (l/== y [y1 y2 y3])
-             (l/== z [z1 z2 z3])
-             (l/conde [(l/== 4 o)] [(l/== 5 o)])
+         (l/run* [c x y z]
+           (l/fresh [c2 c3 x1 x3 y1  y3 z1 z3]
+             (l/== x [x1 c2 x3])
+             (l/== y [y1 c2 y3])
+             (l/== z [z1 c2 z3])
+             (l/== c [:C c2 c3])
+             (l/conde [(l/== 4 c2)] [(l/== 5 c2)])
              (chordo  :maj
-                      [:C, o, ap]
-                      x
-                      y
-                      z))) ;; what are all the inversions of C major in octaves 4 and 5?
-
+                      c
+                      [x1 c2 x3]
+                      [y1 c2 y3]
+                      [z1 c2 z3]))) ;; what are all the inversions of C major in octaves 4 and 5?
 
          (l/run* [q]
            (l/fresh [x y] (intervalo q
