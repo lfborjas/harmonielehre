@@ -172,11 +172,16 @@
 ;; {:chan 0, :cmd 128, :note 26, :vel 86, :data1 26, :data2 86}
 ;; {:chan 0, :cmd 176, :note 64, :vel 7, :data1 64, :data2 7}
 
-;;; END OF COPY-PASTE
+;; note that:
 
+;; harmonielehre.midi> (midi-shortmessage-command 144)
+;; :note-on
+;; harmonielehre.midi> (midi-shortmessage-command 128)
+;; :note-off
+;; harmonielehre.midi> (midi-shortmessage-command 176)
+;; :control-change
 
-;(defn )
-
+;; END OF COPY-PASTE
 
 
 ;; harmonielehre.midi> (midi-devices)
