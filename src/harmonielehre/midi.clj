@@ -142,6 +142,9 @@
                    (send [msg timestamp] (fun (midi-msg msg) timestamp)))]
     (.setReceiver (:transmitter input) receiver)))
 
+;; fns based on the MIDI standard:
+;; http://fmslogo.sourceforge.net/manual/midi-table.html
+
 (def midi-shortmessage-command 
   {ShortMessage/CHANNEL_PRESSURE :channel-pressure
    ShortMessage/CONTROL_CHANGE :control-change
@@ -155,12 +158,17 @@
   "Was the leftmost pedal pressed?"
   [midi-msg]
   (and (= :control-change (midi-shortmessage-command (:cmd midi-msg)))
+       ;; note that according to the MIDI standard, the actual sostenuto
+       ;; pedal should be coming in as 66, since 67 is the soft pedal
+       ;; but 67 is what my piano reports, even though the pedal does function
+       ;; as sostenuto.
        (= 67 (:note midi-msg))))
 
 (defn is-sustain-pedal?
   "Was the sustain pedal pressed?"
   [midi-msg]
   (and (= :control-change (midi-shortmessage-command (:cmd midi-msg)))
+       ;; aka the "damper" pedal
        (= 64 (:note midi-msg))))
 
 ;; connecting to my piano:
