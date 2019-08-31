@@ -151,6 +151,18 @@
    ShortMessage/POLY_PRESSURE :poly-pressure
    ShortMessage/PROGRAM_CHANGE :program-change})
 
+(defn is-sostenuto-pedal?
+  "Was the leftmost pedal pressed?"
+  [midi-msg]
+  (and (= :control-change (midi-shortmessage-command (:cmd midi-msg)))
+       (= 67 (:note midi-msg))))
+
+(defn is-sustain-pedal?
+  "Was the sustain pedal pressed?"
+  [midi-msg]
+  (and (= :control-change (midi-shortmessage-command (:cmd midi-msg)))
+       (= 64 (:note midi-msg))))
+
 ;; connecting to my piano:
 
 (comment
