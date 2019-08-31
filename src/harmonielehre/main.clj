@@ -39,7 +39,13 @@
 
 ;; now we're ready to handle events:
 
+
+;; all the code needed to perform notes coming from the piano!
 (comment
+  ;; KDP110 is part of the unique identifier for my piano,
+  ;; run (midi/midi-devices) to display all valid midi devices (software and hardware)
+  ;; currently active. For the KDP110 piano, setup is here:
+  ;; http://www.kawai-global.com/support/bluetooth/#connect-macos
   (def kdp (midi/midi-in "KDP110"))
   (midi/midi-handle-events kdp record-note)
   (midi/perform (@recorded-notes :notes)))
