@@ -23,11 +23,15 @@
     [ms tempo]
     (womp))
 
-(defn perform [notes & {:keys [tempo] :or {tempo 88}}]
-  (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
-    (let [channel (aget (.getChannels synth) 0)]
-      (doseq [note notes]
-        (play note channel)))))
+
+(defrecord Rest [duration]
+  MidiNote
+  ;; 123 is MIDI for all notes off but... not using it for exactly that
+  (key-number [this] 123)
+  ;; "playing" a rest is simply blocking the channel's thread doing nothing
+  ;; for a few milliseconds (MIDI has no use, or notation, for rests)
+  (play [this _]
+    (Thread/sleep (/ (:duration this) 1000))))
 
 (defrecord Note [pitch octave duration velocity]
   MidiNote
@@ -36,7 +40,14 @@
   (play [this midi-channel]
     (let [velocity (or (:velocity this) 64)]
       (.noteOn midi-channel (key-number this) velocity)
-      (Thread/sleep (:duration this)))))
+      (Thread/sleep (/ (:duration this) 1000)))))
+
+
+(defn perform [notes & {:keys [tempo] :or {tempo 88}}]
+  (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
+    (let [channel (aget (.getChannels synth) 0)]
+      (doseq [note notes]
+        (play note channel)))))
 
 (comment
   (perform [(->Note :C 4 (dur->msec 1/4 88) 125)

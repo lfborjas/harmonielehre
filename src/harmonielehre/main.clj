@@ -26,7 +26,7 @@
     (if (and (> elapsed 0)
              (empty? (:active @state*)))
       ;; if no notes are active, and sometime has elapsed, record as a silence
-      (dosync (alter recorded-notes* conj {:rest elapsed})))))
+      (dosync (alter recorded-notes* conj (midi/->Rest elapsed))))))
 
 (defn active-note
   "Records the instant when a note became active"
@@ -95,7 +95,9 @@
   ;; run (midi/midi-devices) to display all valid midi devices (software and hardware)
   ;; currently active. For the KDP110 piano, setup is here:
   ;; http://www.kawai-global.com/support/bluetooth/#connect-macos
+  ;; Make sure to connect the device each time in through the MIDI Studio
+  ;; (part of Audio MIDI Setup)
   (def kdp (midi/midi-in "KDP110"))
   (swap! state* assoc :inst kdp)
   (midi/midi-handle-events kdp record-midi)
-  (midi/perform (@recorded-notes :notes)))
+  (midi/perform @recorded-notes*))
