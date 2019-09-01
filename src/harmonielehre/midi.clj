@@ -57,15 +57,9 @@
         (play note channel tempo)))))
 
 (comment
-  (perform [(->Note :C 4 (dur->msec 1/4 88) 125)
+  (perform [(->Note :C 4 131000 125)
             (->Note :D 4 (dur->msec 1/2 88) 64)
             (->Note :E 4 (dur->msec 1/4 88) 64)] :tempo 1/4))
-
-;; Connect to a MIDI device via bluetooth.
-
-;; In the particular case of my piano and my computer, this helped!
-;; http://www.kawai-global.com/support/bluetooth/
-
 
 ;; START OF COPY-PASTE
 ;; copied some useful functions from the midi-clj library:
