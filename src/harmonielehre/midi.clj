@@ -1,8 +1,7 @@
 (ns harmonielehre.midi
   (:require [harmonielehre.kernel :as kernel])
   (:import  [javax.sound.midi MidiSystem Sequencer Synthesizer Receiver ShortMessage]
-            [java.util.regex Pattern]
-            [java.util.concurrent ScheduledThreadPoolExecutor TimeUnit]))
+            [java.util.regex Pattern]))
 
 ;; The code here is from the Programming Clojure book:
 ;; https://github.com/stuarthalloway/programming-clojure/blob/master/src/examples/midi.clj
@@ -60,7 +59,7 @@
 (comment
   (perform [(->Note :C 4 (dur->msec 1/4 88) 125)
             (->Note :D 4 (dur->msec 1/2 88) 64)
-            (->Note :E 4 (dur->msec 1/4 88) 64)]))
+            (->Note :E 4 (dur->msec 1/4 88) 64)] :tempo 1/4))
 
 ;; Connect to a MIDI device via bluetooth.
 
