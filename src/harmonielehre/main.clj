@@ -4,30 +4,55 @@
    [harmonielehre.midi :as midi]))
 
 
-(def recorded-notes (atom {:last-ts (System/currentTimeMillis) :notes []}))
+(def recorded-notes* (ref []))
+(def state* (atom {:last-ts (System/currentTimeMillis)
+                   :starting-ts nil
+                   :end-ts nil
+                   :active {}
+                   :finished {}}))
 
-(defn midi->note [midi-msg]
+(defn midi->note [midi-msg dur]
   (let [[pc oct] (kernel/abs-pitch->pitch (:note midi-msg))]
-    (midi/->Note pc oct (midi/dur->msec 1/4) )))
+    (midi/->Note pc oct dur (:vel midi-msg) )))
 
 (comment
-  (midi->note {:note 60}))
+  (midi->note {:note 60 :vel 64} 88))
 
-(defn record-note
-  "Given a midi message and a note, add it to the recorded-notes atom
+(defn active-note
+  "Records the instant when a note became active"
+  [note midi-msg ts]
+  ;; the note may alredy be active
+  (when (not (contains? (:active @state*) note))
+    (swap! state* assoc-in [:active note] (assoc midi-msg :ts ts))))
 
-  Only considers note-on events"
+(defn finished-note
+  "Record a note being off"
+  [note midi-msg current-ts]
+  ;; only do something if we know of an active version of this note
+  (when-let [sound (get-in @state* [:active note])]
+    ;; record this note
+    (dosync (alter recorded-notes* conj
+                   (midi->note sound
+                               ;; the duration of a note
+                               ;; is the current timestamp
+                               ;; substracting when it became active
+                               (- current-ts (:ts sound)))))
+    ;; mark it as no longer active
+    (swap! state* update-in [:active] dissoc note)
+    (swap! state* assoc-in  [:finished note] sound)))
+
+(defn record-midi
+  "Given an incoming message and a timestamp, record it."
   [midi-msg ts]
   (let [command (midi/midi-shortmessage-command (:cmd midi-msg))
-        note    (:note midi-msg)]
-    (when (= :note-on command)
-      (swap! recorded-notes assoc :last-ts ts)
-      (swap! recorded-notes assoc :notes
-             (conj (@recorded-notes :notes)
-                   (midi->note midi-msg))))))
+        note (:note midi-msg)]
+    (case command
+      :note-on  (active-note note midi-msg ts)
+      :note-off (finished-note note midi-msg ts)
+      nil)))
 
 (comment
-  (record-note {:cmd 144 :note 64} (System/currentTimeMillis)))
+  ())
 
 ;; ]}
 ;; harmonienlehre.main> (record-note {:cmd 144 :note 64} (System/currentTimeMillis))
