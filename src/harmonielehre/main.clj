@@ -64,9 +64,6 @@
       :note-off (finished-note note midi-msg ts)
       nil)))
 
-(comment
-  ())
-
 ;; harmonienlehre.main> (record-midi {:cmd 144 :note 64 :vel 28} (System/currentTimeMillis))
 ;; {:last-ts 1567308173809,
 ;;  :starting-ts nil,
@@ -86,8 +83,20 @@
 ;;  {:pitch :E, :octave 4, :duration 14215, :velocity 28}]
 ;; harmonienlehre.main> 
 
-;; now we're ready to handle events:
+(defn persist-notes
+  "saves the given list of notes to the specified file"
+  [notes filename]
+  (spit filename (clojure.string/join "\n" (map pr-str notes))
+        :append true))
 
+(def saved-recorded-notes (partial persist-notes @recorded-notes*))
+
+(defn read-notes
+  "reads notes from a file"
+  [filename]
+  (->> (slurp filename)
+       clojure.string/split-lines
+       (map read-string)))
 
 ;; all the code needed to perform notes coming from the piano!
 (comment
@@ -100,4 +109,4 @@
   (def kdp (midi/midi-in "KDP110"))
   (swap! state* assoc :inst kdp)
   (midi/midi-handle-events kdp record-midi)
-  (midi/perform @recorded-notes*))
+  (midi/perform  @recorded-notes*))
