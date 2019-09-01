@@ -11,13 +11,6 @@
   (key-number [this])
   (play [this midi-channel tempo]))
 
-(def player-pool* (ScheduledThreadPoolExecutor. 10))
-
-(defn- schedule
-  "Schedules f to be executed after ms-delay milliseconds"
-  [f ms-delay]
-  (.schedule player-pool* f (long ms-delay) TimeUnit/MILLISECONDS))
-
 (defn dur->msec
   "Given a fractional description of a note and a tempo, return a millisecond value"
   [dur tempo]
@@ -43,7 +36,7 @@
   ;; "playing" a rest is simply blocking the channel's thread doing nothing
   ;; for a few milliseconds (MIDI has no use, or notation, for rests)
   (play [this _ tempo]
-    (schedule #() (scale-dur this tempo))))
+    (Thread/sleep (scale-dur this tempo))))
 
 (defrecord Note [pitch octave duration velocity]
   MidiNote
@@ -53,40 +46,16 @@
     (let [velocity (or (:velocity this) 64)]
       ;; immediately start playing the note
       (.noteOn midi-channel (key-number this) velocity)
-      ;; schedule this note to be turned off after its duration
-      ;; is over.
-      (schedule #(.noteOff midi-channel (key-number this))
-                (scale-dur this tempo)))))
-
-
-
-(defn- play-all
-  "Recursively schedules notes to be played on or off on a given channel"
-  ;; based on midi-clj's similar method:
-  ;; https://github.com/rosejn/midi-clj/blob/dba91fb8f86e242cbd6e91c60b4dd0a27635314e/src/midi.clj#L247
-  [channel notes tempo]
-  (loop [notes notes
-         cur-time 0]
-    (if notes
-      (let [n (first notes)
-            d (scale-dur n tempo)]
-        (schedule #(play n channel tempo) d)
-        (recur (next notes) (+ cur-time d))))))
+      (Thread/sleep (scale-dur this tempo))
+      (.noteOff midi-channel (key-number this) velocity))))
 
 (defn perform
   "Plays a seq of notes, scaled by a given tempo"
   [notes & {:keys [tempo] :or {tempo 1}}]
   (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
     (let [channel (aget (.getChannels synth) 0)]
-      (play-all channel notes tempo)
-      (.awaitTermination player-pool*
-                         (/ (reduce + (map :duration notes)) 1000)
-                         TimeUnit/MILLISECONDS))))
-
-(defn perform-in
-  "Like perform, but uses a specific channel"
-  [out notes & {:keys [tempo] :or {tempo 1}}]
-  (play-all out notes tempo))
+      (doseq [note notes]
+        (play note channel tempo)))))
 
 (comment
   (perform [(->Note :C 4 (dur->msec 1/4 88) 125)
