@@ -6,6 +6,7 @@
 
 (def recorded-notes* (ref []))
 (def state* (atom {:last-ts (System/currentTimeMillis)
+                   :inst nil
                    :starting-ts nil
                    :end-ts nil
                    :active {}
@@ -18,11 +19,21 @@
 (comment
   (midi->note {:note 60 :vel 64} 88))
 
+(defn record-silence
+  "Potentially record a silence if time has elapsed between notes"
+  [now last-ts]
+  (let [elapsed (- now last-ts)]
+    (if (and (> elapsed 0)
+             (empty? (:active @state*)))
+      ;; if no notes are active, and sometime has elapsed, record as a silence
+      (dosync (alter recorded-notes* conj {:rest elapsed})))))
+
 (defn active-note
   "Records the instant when a note became active"
   [note midi-msg ts]
-  ;; the note may alredy be active
+  ;; the note may already be active
   (when (not (contains? (:active @state*) note))
+    (record-silence ts (:last-ts @state*))
     (swap! state* assoc-in [:active note] (assoc midi-msg :ts ts))))
 
 (defn finished-note
@@ -39,7 +50,9 @@
                                (- current-ts (:ts sound)))))
     ;; mark it as no longer active
     (swap! state* update-in [:active] dissoc note)
-    (swap! state* assoc-in  [:finished note] sound)))
+    (swap! state* assoc-in  [:finished note] sound)
+    ;; record the last time a note was off
+    (swap! state* assoc :last-ts current-ts)))
 
 (defn record-midi
   "Given an incoming message and a timestamp, record it."
@@ -54,13 +67,24 @@
 (comment
   ())
 
-;; ]}
-;; harmonienlehre.main> (record-note {:cmd 144 :note 64} (System/currentTimeMillis))
-;; {:last-ts 1567292680091,
-;; :notes
-;; [{:pitch :C, :octave 4, :duration 1/4}
-;; {:pitch :C, :octave 4, :duration 1/4}
-;; {:pitch :E, :octave 4, :duration 1/4}]}
+;; harmonienlehre.main> (record-midi {:cmd 144 :note 64 :vel 28} (System/currentTimeMillis))
+;; {:last-ts 1567308173809,
+;;  :starting-ts nil,
+;;  :end-ts nil,
+;;  :active {64 {:cmd 144, :note 64, :vel 28, :ts 1567308201297}},
+;;  :finished {64 {:cmd 144, :note 64, :vel 28, :ts 1567308166970}}}
+;; harmonienlehre.main> (record-midi {:cmd 128 :note 64 :vel 28} (System/currentTimeMillis))
+;; {:last-ts 1567308215512,
+;;  :starting-ts nil,
+;;  :end-ts nil,
+;;  :active {},
+;;  :finished {64 {:cmd 144, :note 64, :vel 28, :ts 1567308201297}}}
+;; harmonienlehre.main> @recorded-notes*
+;; [{:rest 12358}
+;;  {:pitch :E, :octave 4, :duration 6839, :velocity 28}
+;;  {:rest 27488}
+;;  {:pitch :E, :octave 4, :duration 14215, :velocity 28}]
+;; harmonienlehre.main> 
 
 ;; now we're ready to handle events:
 
@@ -72,5 +96,6 @@
   ;; currently active. For the KDP110 piano, setup is here:
   ;; http://www.kawai-global.com/support/bluetooth/#connect-macos
   (def kdp (midi/midi-in "KDP110"))
-  (midi/midi-handle-events kdp record-note)
+  (swap! state* assoc :inst kdp)
+  (midi/midi-handle-events kdp record-midi)
   (midi/perform (@recorded-notes :notes)))
