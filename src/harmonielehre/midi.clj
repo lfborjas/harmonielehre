@@ -7,28 +7,41 @@
 ;; https://github.com/stuarthalloway/programming-clojure/blob/master/src/examples/midi.clj
 
 (defprotocol MidiNote
-  (to-msec [this tempo])
   (key-number [this])
-  (play [this tempo midi-channel]))
+  (play [this midi-channel]))
+
+(defn dur->msec
+  "Given a fractional description of a note and a tempo, return a millisecond value"
+  [dur tempo]
+  (let [duration-to-bpm {1 240, 1/2 120, 1/4 60, 1/8 30, 1/16 15}]
+    (* 1000 (/ (duration-to-bpm dur)
+               tempo))))
+
+;; TODO: implement this one too!
+#_(defn msec->dur
+    "Given a duration in milliseconds, return it relative to a tempo"
+    [ms tempo]
+    (womp))
 
 (defn perform [notes & {:keys [tempo] :or {tempo 88}}]
   (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
     (let [channel (aget (.getChannels synth) 0)]
       (doseq [note notes]
-        (play note tempo channel)))))
+        (play note channel)))))
 
-(defrecord Note [pitch octave duration]
+(defrecord Note [pitch octave duration velocity]
   MidiNote
-  (to-msec [this tempo]
-    (let [duration-to-bpm {1 240, 1/2 120, 1/4 60, 1/8 30, 1/16 15}]
-      (* 1000 (/ (duration-to-bpm (:duration this))
-                 tempo))))
   (key-number [this]
     (kernel/pitch->abs-pitch [(:pitch this) (:octave this)]))
-  (play [this tempo midi-channel]
+  (play [this midi-channel]
     (let [velocity (or (:velocity this) 64)]
       (.noteOn midi-channel (key-number this) velocity)
-      (Thread/sleep (to-msec this tempo)))))
+      (Thread/sleep (:duration this)))))
+
+(comment
+  (perform [(->Note :C 4 (dur->msec 1/4 88) 125)
+            (->Note :D 4 (dur->msec 1/2 88) 64)
+            (->Note :E 4 (dur->msec 1/4 88) 64)]))
 
 ;; Connect to a MIDI device via bluetooth.
 

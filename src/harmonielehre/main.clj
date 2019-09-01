@@ -8,7 +8,7 @@
 
 (defn midi->note [midi-msg]
   (let [[pc oct] (kernel/abs-pitch->pitch (:note midi-msg))]
-    (midi/->Note pc oct 1/4)))
+    (midi/->Note pc oct (midi/dur->msec 1/4) )))
 
 (comment
   (midi->note {:note 60}))
