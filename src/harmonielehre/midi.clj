@@ -50,6 +50,10 @@
 
 (defn perform
   "Plays a seq of notes, scaled by a given tempo"
+  ;; TODO: this currently plays notes in sequence,
+  ;; which is good for my purposes currently but, hilariously,
+  ;; precludes the playing of chords! Seek inspiration in
+  ;; Euterpea to solve this: https://github.com/Euterpea/Euterpea2/tree/master/Euterpea
   [notes & {:keys [tempo] :or {tempo 1}}]
   (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
     (let [channel (aget (.getChannels synth) 0)]
