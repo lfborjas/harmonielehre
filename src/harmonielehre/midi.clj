@@ -1,7 +1,30 @@
 (ns harmonielehre.midi
   (:require [harmonielehre.kernel :as kernel])
-  (:import  [javax.sound.midi MidiSystem Sequencer Synthesizer Receiver ShortMessage]
+  (:import  [javax.sound.midi MidiSystem
+             Sequence
+             Sequencer
+             Synthesizer
+             Receiver
+             ShortMessage
+             MidiEvent]
             [java.util.regex Pattern]))
+
+
+;; fns based on the MIDI standard:
+;; http://fmslogo.sourceforge.net/manual/midi-table.html
+
+(def midi-shortmessage-command 
+  {ShortMessage/CHANNEL_PRESSURE :channel-pressure
+   ShortMessage/CONTROL_CHANGE :control-change
+   ShortMessage/NOTE_OFF :note-off
+   ShortMessage/NOTE_ON :note-on
+   ShortMessage/PITCH_BEND :pitch-bend
+   ShortMessage/POLY_PRESSURE :poly-pressure
+   ShortMessage/PROGRAM_CHANGE :program-change})
+
+(def commands
+  {:note-on ShortMessage/NOTE_ON
+   :note-off ShortMessage/NOTE_OFF})
 
 ;; The code here is from the Programming Clojure book:
 ;; https://github.com/stuarthalloway/programming-clojure/blob/master/src/examples/midi.clj
@@ -49,7 +72,7 @@
       (.noteOff midi-channel (key-number this) velocity))))
 
 (defn perform
-  "Plays a seq of notes, scaled by a given tempo"
+  "Plays a seq of notes live, scaled by a given tempo"
   ;; TODO: this currently plays notes in sequence,
   ;; which is good for my purposes currently but, hilariously,
   ;; precludes the playing of chords! Seek inspiration in
@@ -64,6 +87,143 @@
   (perform [(->Note :C 4 131000 125)
             (->Note :D 4 (dur->msec 1/2 88) 64)
             (->Note :E 4 (dur->msec 1/4 88) 64)] :tempo 1/4))
+
+;; Transducer that transforms notes into events with absolute timestamps
+(def xevents
+  (comp
+   ;; remove silences
+   (remove #(not (contains? % :pitch)))
+   ;; add (absolute pitch)
+   (map    #(assoc % :note (kernel/pitch->abs-pitch (map % [:pitch :octave]))))
+   ;; split each note into note-on/note-off commands
+   (mapcat #(vector (merge % {:cmd :note-on  :ts (:start-ts %)})
+                    (merge % {:cmd :note-off :ts (:end-ts   %)})))))
+
+(defn us->tick
+  "Given a microsecond timestamp, a tempo and a resolution
+  return the MIDI tick equivalent
+
+  Formula from:
+  https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-intro.html
+  Note that we're assuming cumulative time, which the Java MIDI utilities
+  seem to use, instead of delta time, which is more standard MIDI."
+  [ts bpm ppqn]
+  (let [ticks-per-second (* ppqn
+                            ;; the Java tutorial says bpm/60
+                            ;; however, I don't think I want beats per second
+                            ;; but rather... seconds per beat?
+                            ;; all I know is that this gives me
+                            ;; bigger numbers the slower the tempo
+                            ;; e.g. 60/32 = 1.875
+                            ;; 60/120 = 0.5
+                            ;; i.e. in a slower tempo, a tick
+                            ;; should have a greater value, because
+                            ;; it's slower to be reached.
+                            (/ 60 bpm))
+        tick-size (/ 1 ticks-per-second)
+        us->s     (/ ts 1E+6)]
+    (long (/ us->s tick-size))))
+
+(defn notes->events
+  "Creates a sequence of MIDI events based on a collection of notes and tempo
+
+  It will try to use the notes' duration, or the more accurate start/end timestamps,
+  if available.
+
+
+  Based on: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html#124674
+  And: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-intro.html"
+  [notes tempo ppqn]
+  (let [beginning (:start-ts (first notes))
+        xticks (comp
+                xevents
+                ;; make timestamps relative to the beginning
+                (map #(merge % {:ts (- (:ts %) beginning)}))
+                ;; determine tick relative to tempo and resolution
+                (map #(merge % {:tick (us->tick (:ts %) tempo ppqn)})))]
+    ;; could also use sequence or eduction?
+    (sequence xticks notes)))
+
+
+
+(defn event->short-message
+  "Creates a MIDI ShortMessage based on an event"
+  [event]
+  (doto (ShortMessage.)
+    (.setMessage (commands (:cmd event))
+                 (get event :chan 0)
+                 (event     :note)
+                 (event     :velocity))))
+
+(defn events->sequence
+  "Create a MIDI sequence given a seq of events. Adds events to
+  the sequence's track, returns the sequence.
+
+  Expects the events to be regular clojure maps/records, and instantiates the right MidiEvent
+  objects.
+
+  Will create a sequence using Pulses Per Quarter-note as its division type, the given resolution
+  and 1 track initially.
+
+  From: https://docs.oracle.com/javase/8/docs/api/javax/sound/midi/Sequence.html
+  And: "
+  [events ppqn]
+
+  (let [sequence (Sequence. Sequence/PPQ ppqn 1) ;; 1 initial track
+        track    (first (.getTracks sequence))]
+    (doseq [event events]
+      (.add track (MidiEvent. (event->short-message event)
+                              (:tick event))))
+    sequence))
+
+(defn sequencer-perform
+  "Takes a seq of notes, creates a sequence, loads it into the sequencer, and performs.
+
+  From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
+  [notes tempo ppqn]
+  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
+    (let [sequence  (-> notes (notes->events tempo ppqn) (events->sequence ppqn))]
+      (.setSequence sequencer sequence)
+      (.start sequencer)
+      (while (.isRunning sequencer) (Thread/sleep 2000)))))
+
+(comment
+  (def beethoven-fminor '({:pitch :C,
+                           :octave 4,
+                           :duration 122000,
+                           :velocity 63,
+                           :start-ts 78231356000,
+                           :end-ts 78231478000}
+                          {:pitch :E,
+                           :octave 4,
+                           :duration 122000,
+                           :velocity 63,
+                           :start-ts 78231356000,
+                           :end-ts 78231478000}
+                          {:duration 479000}
+                          {:pitch :F,
+                           :octave 4,
+                           :duration 48000,
+                           :velocity 82,
+                           :start-ts 78231957000,
+                           :end-ts 78232005000}
+                          {:duration 619000}
+                          {:pitch :Gs,
+                           :octave 4,
+                           :duration 44000,
+                           :velocity 62,
+                           :start-ts 78232624000,
+                           :end-ts 78232668000}
+                          {:pitch :C,
+                           :octave 5,
+                           :duration 44000,
+                           :velocity 62,
+                           :start-ts 78232624000,
+                           :end-ts 78232668000}))
+  ;; will apply the transformations necessary for sequencing,
+  ;; and play at 32 BPM (Grave) with a resolution of 96 pulses per quarter note.
+  (sequencer-perform beethoven-fminor 32 96))
+
 
 ;; START OF COPY-PASTE
 ;; copied some useful functions from the midi-clj library:
@@ -100,6 +260,22 @@
   (filter #(and (not (instance? Sequencer (:device %1)))
                 (not (instance? Synthesizer (:device %1))))
           (midi-devices)))
+
+;; For ideas on what to do with sequencers, see:
+;; 
+(defn midi-sequencers []
+  "Get the midi sequencers"
+  (filter #(instance? Sequencer (:device %1)) (midi-devices)))
+
+;; For ideas on how to interact with synthesizers, see:
+;; https://docs.oracle.com/javase/tutorial/sound/MIDI-synth.html
+;; e.g.:
+;; (def synth (first (midi/midi-synthesizers)))
+;; (.getMaxPolyphony (:device synth))
+;; 64
+(defn midi-synthesizers []
+  "Get available synthesizers"
+  (filter #(instance? Synthesizer (:device %1)) (midi-devices)))
 
 (defn midi-sources []
   "Get the midi input sources."
@@ -168,20 +344,14 @@
   [input fun]
   (let [receiver (proxy [Receiver] []
                    (close [] nil)
+                   ;; note that the timestamp is in MICROSECONDS, not millis!
+                   ;; also, this is a Java nicety and not part of the MIDI wire protocol,
+                   ;; which is what this receiver is listening for:
+                   ;; https://docs.oracle.com/javase/tutorial/sound/MIDI-messages.html
                    (send [msg timestamp] (fun (midi-msg msg) timestamp)))]
     (.setReceiver (:transmitter input) receiver)))
 
-;; fns based on the MIDI standard:
-;; http://fmslogo.sourceforge.net/manual/midi-table.html
 
-(def midi-shortmessage-command 
-  {ShortMessage/CHANNEL_PRESSURE :channel-pressure
-   ShortMessage/CONTROL_CHANGE :control-change
-   ShortMessage/NOTE_OFF :note-off
-   ShortMessage/NOTE_ON :note-on
-   ShortMessage/PITCH_BEND :pitch-bend
-   ShortMessage/POLY_PRESSURE :poly-pressure
-   ShortMessage/PROGRAM_CHANGE :program-change})
 
 (defn is-sostenuto-pedal?
   "Was the leftmost pedal pressed?"
@@ -205,7 +375,7 @@
 (comment
   (def kdp (midi-in "KDP110")) ;; this works due to the setup described earlier
   ;; creates a separate thread if not careful!
-  (midi-handle-events kdp (fn [msg ts] (println msg))))
+  (midi-handle-events kdp (fn [msg ts] (println [msg ts]))))
 
 ;; will print things like:
 
@@ -229,48 +399,3 @@
 ;; :note-off
 ;; harmonielehre.midi> (midi-shortmessage-command 176)
 ;; :control-change
-
-;; END OF COPY-PASTE
-
-
-;; harmonielehre.midi> (midi-devices)
-;; ({:name "Gervill",
-;;   :description "Software MIDI Synthesizer",
-;;   :vendor "OpenJDK",
-;;   :version "1.0",
-;;   :sources 0,
-;;   :sinks -1,
-;;   :info
-;;   #object[com.sun.media.sound.SoftSynthesizer$Info 0x61cbd6ed "Gervill"],
-;;   :device
-;;   #object[com.sun.media.sound.SoftSynthesizer 0x1963426e "com.sun.media.sound.SoftSynthesizer@1963426e"]}
-;;  {:name "Real Time Sequencer",
-;;   :description "Software sequencer",
-;;   :vendor "Oracle Corporation",
-;;   :version "Version 1.0",
-;;   :sources -1,
-;;   :sinks -1,
-;;   :info
-;;   #object[com.sun.media.sound.RealTimeSequencer$RealTimeSequencerInfo 0x1e87f12 "Real Time Sequencer"],
-;;   :device
-;;   #object[com.sun.media.sound.RealTimeSequencer 0x73a06f04 "com.sun.media.sound.RealTimeSequencer@73a06f04"]}
-;;  {:name "Bluetooth",
-;;   :description "KDP110 Bluetooth",
-;;   :vendor "Kawai Musical Instruments Manufacturing Co., Ltd.",
-;;   :version "2",
-;;   :sources 0,
-;;   :sinks -1,
-;;   :info
-;;   #object[com.sun.media.sound.MidiOutDeviceProvider$MidiOutDeviceInfo 0x239726fd "Bluetooth"],
-;;   :device
-;;   #object[com.sun.media.sound.MidiOutDevice 0x4cd125b "com.sun.media.sound.MidiOutDevice@4cd125b"]}
-;;  {:name "Bluetooth",
-;;   :description "KDP110 Bluetooth",
-;;   :vendor "Kawai Musical Instruments Manufacturing Co., Ltd.",
-;;   :version "2",
-;;   :sources -1,
-;;   :sinks 0,
-;;   :info
-;;   #object[com.sun.media.sound.MidiInDeviceProvider$MidiInDeviceInfo 0x1530d475 "Bluetooth"],
-;;   :device
-;;   #object[com.sun.media.sound.MidiInDevice 0x104f4d5a "com.sun.media.sound.MidiInDevice@104f4d5a"]})
