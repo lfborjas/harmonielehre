@@ -177,6 +177,14 @@
                               (:tick event))))
     sequence))
 
+#_(defn normalize-sequence
+    "Given a raw MIDI sequence recorded live, normalize (remove control changes, reset ticks)"
+    [s]
+    (let [new-seq (Sequence. Sequence/PPQ (.getResolution s) 1)
+          track   (first (.getTracks new-seq))
+          first-tick (.getTick (.get (first .getTracks s) 0))]
+      (doseq [])))
+
 (defn sequencer-perform
   "Takes a seq of notes, creates a sequence, loads it into the sequencer, and performs.
 
@@ -190,6 +198,16 @@
     ;; at the right place!
     (let [sequence  (-> notes (notes->events tempo ppqn) (events->sequence ppqn))]
       (.setSequence sequencer sequence)
+      (.start sequencer)
+      (while (.isRunning sequencer) (Thread/sleep 2000)))))
+
+(defn perform-from-sequence
+  [sequenz]
+  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
+    (let [first-tick (.getTick (.get (first (.getTracks sequenz)) 0))]
+      (.setSequence sequencer sequenz)
+      ;; set to the first tick, since it may have a hilariously high value!
+      (.setTickPosition sequencer first-tick)
       (.start sequencer)
       (while (.isRunning sequencer) (Thread/sleep 2000)))))
 
@@ -382,33 +400,20 @@
   From the 'Recording and Saving Sequences' heading at:
   https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
   [input]
-  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)
-              transmitter (doto (.getTransmitter sequencer) .open)]
+  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
     (let [sequence    (Sequence. Sequence/PPQ 960 1)
-          receiver    (.getReceiver sequencer)
-          
-          eavesdropper (proxy [Receiver] []
-                         (close [] nil)
-                         (send [msg timestamp]
-                           (cond
-                             (is-soft-pedal? (midi-msg msg)) (.stopRecording sequencer)
-                             :else (prn msg))))]
+          receiver    (.getReceiver sequencer)]
       ;; listen for sustain and soft pedal events only
       (.setSequence sequencer sequence)
       (.recordEnable sequencer (first (.getTracks sequence)) -1)
       ;; capture events from the MIDI device into this sequencer's receiver
       (.setReceiver (:transmitter input) receiver)
-      ;; eavesdrop into this sequencer's transmitter
       (.startRecording sequencer)
-      (.setReceiver transmitter eavesdropper)
       ;; and then wait until we signal we're done recording
       (while (.isRecording sequencer) (do (println "recording!")
                                           (reset! spy sequence)
                                           (Thread/sleep 2000)))
       sequence)))
-
-
-
 
 ;; connecting to my piano:
 
