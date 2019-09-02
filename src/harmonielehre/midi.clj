@@ -177,13 +177,10 @@
   From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
   [notes tempo ppqn]
   (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
-    (let [sequence  (-> notes (notes->events tempo ppqn) (events->sequence ppqn))
-          ;; how many ticks long is the track, in total?
-          total-ticks (.ticks (first (.getTracks sequence)))
-          duration    (ticks->ms total-ticks tempo ppqn)]
+    (let [sequence  (-> notes (notes->events tempo ppqn) (events->sequence ppqn))]
       (.setSequence sequencer sequence)
       (.start sequencer)
-      (Thread/sleep duration))))
+      (while (.isRunning sequencer) (Thread/sleep 2000)))))
 
 (comment
   (def beethoven-fminor '({:pitch :C,
@@ -208,7 +205,7 @@
                            :end-ts 78232668000}))
   ;; will apply the transformations necessary for sequencing,
   ;; and play at 88 BPM with a resolution of 96 pulses per quarter note.
-  (sequencer-perform beethoven-fminor 88 96))
+  (sequencer-perform beethoven-fminor 120 960))
 
 
 ;; START OF COPY-PASTE
