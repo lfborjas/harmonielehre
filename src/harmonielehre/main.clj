@@ -14,7 +14,7 @@
 
 (defn midi->note [midi-msg dur]
   (let [[pc oct] (kernel/abs-pitch->pitch (:note midi-msg))]
-    (midi/->Note pc oct dur (:vel midi-msg) )))
+    (midi/->Note pc oct dur (:vel midi-msg))))
 
 (comment
   (midi->note {:note 60 :vel 64} 88))
@@ -43,11 +43,14 @@
   (when-let [sound (get-in @state* [:active note])]
     ;; record this note
     (dosync (alter recorded-notes* conj
-                   (midi->note sound
-                               ;; the duration of a note
-                               ;; is the current timestamp
-                               ;; substracting when it became active
-                               (- current-ts (:ts sound)))))
+                   (merge (midi->note sound
+                                      ;; the duration of a note
+                                      ;; is the current timestamp
+                                      ;; substracting when it became active
+                                      (- current-ts (:ts sound)))
+                          ;; add the optional start/end timestamps
+                          ;; to the note to aid in sequencing.
+                          {:start-ts (:ts sound) :end-ts current-ts})))
     ;; mark it as no longer active
     (swap! state* update-in [:active] dissoc note)
     (swap! state* assoc-in  [:finished note] sound)
