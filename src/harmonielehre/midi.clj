@@ -382,22 +382,25 @@
   From the 'Recording and Saving Sequences' heading at:
   https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
   [input]
-  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
-    (let [sequence  (Sequence. Sequence/PPQ 960 1)
-          listener  (proxy [ControllerEventListener] []
-                      (controlChange [msg]
-                        (let [msg-map (midi-msg msg)]
-                          (cond (and (= 67 (:data1 msg-map))
-                                     (= 0  (:data2 msg-map))) (.stopRecording sequencer)
-                                (and (= 64 (:data1 msg-map))
-                                     (= 0  (:data2 msg-map))) (.startRecording sequencer)))))
-          receiver  (.getReceiver sequencer)]
+  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)
+              transmitter (doto (.getTransmitter sequencer) .open)]
+    (let [sequence    (Sequence. Sequence/PPQ 960 1)
+          receiver    (.getReceiver sequencer)
+          
+          eavesdropper (proxy [Receiver] []
+                         (close [] nil)
+                         (send [msg timestamp]
+                           (cond
+                             (is-soft-pedal? (midi-msg msg)) (.stopRecording sequencer)
+                             :else (prn msg))))]
       ;; listen for sustain and soft pedal events only
       (.setSequence sequencer sequence)
       (.recordEnable sequencer (first (.getTracks sequence)) -1)
+      ;; capture events from the MIDI device into this sequencer's receiver
       (.setReceiver (:transmitter input) receiver)
-      (.addControllerEventListener sequencer other-listener (into-array Integer/TYPE [64 67]))
+      ;; eavesdrop into this sequencer's transmitter
       (.startRecording sequencer)
+      (.setReceiver transmitter eavesdropper)
       ;; and then wait until we signal we're done recording
       (while (.isRecording sequencer) (do (println "recording!")
                                           (reset! spy sequence)
