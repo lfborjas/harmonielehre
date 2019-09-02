@@ -109,17 +109,20 @@
   seem to use, instead of delta time, which is more standard MIDI."
   [ts bpm ppqn]
   (let [ticks-per-second (* ppqn
-                            (/ bpm 60))
+                            ;; the Java tutorial says bpm/60
+                            ;; however, I don't think I want beats per second
+                            ;; but rather... seconds per beat?
+                            ;; all I know is that this gives me
+                            ;; bigger numbers the slower the tempo
+                            ;; e.g. 60/32 = 1.875
+                            ;; 60/120 = 0.5
+                            ;; i.e. in a slower tempo, a tick
+                            ;; should have a greater value, because
+                            ;; it's slower to be reached.
+                            (/ 60 bpm))
         tick-size (/ 1 ticks-per-second)
         us->s     (/ ts 1E+6)]
     (long (/ us->s tick-size))))
-
-(defn ticks->ms
-  "Given a tick count a tempo and a resolution, return how many milliseconds that would take to perform"
-  [ticks bpm ppqn]
-  (let [ticks-per-second (* ppqn (/ bpm 60))
-        tick-size (/ 1 ticks-per-second)]
-    (long (* (* ticks tick-size) 1000))))
 
 (defn notes->events
   "Creates a sequence of MIDI events based on a collection of notes and tempo
@@ -134,7 +137,9 @@
   (let [beginning (:start-ts (first notes))
         xticks (comp
                 xevents
+                ;; make timestamps relative to the beginning
                 (map #(merge % {:ts (- (:ts %) beginning)}))
+                ;; determine tick relative to tempo and resolution
                 (map #(merge % {:tick (us->tick (:ts %) tempo ppqn)})))]
     ;; could also use sequence or eduction?
     (sequence xticks notes)))
@@ -204,8 +209,8 @@
                            :start-ts 78232624000,
                            :end-ts 78232668000}))
   ;; will apply the transformations necessary for sequencing,
-  ;; and play at 88 BPM with a resolution of 96 pulses per quarter note.
-  (sequencer-perform beethoven-fminor 120 960))
+  ;; and play at 32 BPM (Grave) with a resolution of 96 pulses per quarter note.
+  (sequencer-perform beethoven-fminor 32 96))
 
 
 ;; START OF COPY-PASTE
