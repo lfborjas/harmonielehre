@@ -6,7 +6,8 @@
              Synthesizer
              Receiver
              ShortMessage
-             MidiEvent]
+             MidiEvent
+             ControllerEventListener]
             [java.util.regex Pattern]))
 
 
@@ -344,6 +345,20 @@
    :data2 (.getData2 obj)
    })
 
+(defn is-soft-pedal?
+  "Was the leftmost pedal pressed?"
+  [midi-msg]
+  (and (= :control-change (midi-shortmessage-command (:cmd midi-msg)))
+       ;; aka the "una corda" pedal in grands.
+       (= 67 (:note midi-msg))))
+
+(defn is-sustain-pedal?
+  "Was the sustain pedal pressed?"
+  [midi-msg]
+  (and (= :control-change (midi-shortmessage-command (:cmd midi-msg)))
+       ;; aka the "damper" pedal
+       (= 64 (:note midi-msg))))
+
 (defn midi-handle-events 
   "Specify a single handler that will receive all midi events from the input device."
   [input fun]
@@ -357,30 +372,48 @@
     (.setReceiver (:transmitter input) receiver)))
 
 
+(def spy (atom nil))
+(defn midi-record-sequence
+  "Synchronous method to start recording from an input. Returns the captured MIDI Sequence
 
-(defn is-sostenuto-pedal?
-  "Was the leftmost pedal pressed?"
-  [midi-msg]
-  (and (= :control-change (midi-shortmessage-command (:cmd midi-msg)))
-       ;; note that according to the MIDI standard, the actual sostenuto
-       ;; pedal should be coming in as 66, since 67 is the soft pedal
-       ;; but 67 is what my piano reports, even though the pedal does function
-       ;; as sostenuto.
-       (= 67 (:note midi-msg))))
+  It waits until the damper pedal is pressed to start recording, and will stop recording
+  once the sustain pedal is pressed.
 
-(defn is-sustain-pedal?
-  "Was the sustain pedal pressed?"
-  [midi-msg]
-  (and (= :control-change (midi-shortmessage-command (:cmd midi-msg)))
-       ;; aka the "damper" pedal
-       (= 64 (:note midi-msg))))
+  From the 'Recording and Saving Sequences' heading at:
+  https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
+  [input]
+  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
+    (let [sequence  (Sequence. Sequence/PPQ 960 1)
+          listener  (proxy [ControllerEventListener] []
+                      (controlChange [msg]
+                        (let [msg-map (midi-msg msg)]
+                          (cond (and (= 67 (:data1 msg-map))
+                                     (= 0  (:data2 msg-map))) (.stopRecording sequencer)
+                                (and (= 64 (:data1 msg-map))
+                                     (= 0  (:data2 msg-map))) (.startRecording sequencer)))))
+          receiver  (.getReceiver sequencer)]
+      ;; listen for sustain and soft pedal events only
+      (.setSequence sequencer sequence)
+      (.recordEnable sequencer (first (.getTracks sequence)) -1)
+      (.setReceiver (:transmitter input) receiver)
+      (.addControllerEventListener sequencer other-listener (into-array Integer/TYPE [64 67]))
+      (.startRecording sequencer)
+      ;; and then wait until we signal we're done recording
+      (while (.isRecording sequencer) (do (println "recording!")
+                                          (reset! spy sequence)
+                                          (Thread/sleep 2000)))
+      sequence)))
+
+
+
 
 ;; connecting to my piano:
 
 (comment
   (def kdp (midi-in "KDP110")) ;; this works due to the setup described earlier
   ;; creates a separate thread if not careful!
-  (midi-handle-events kdp (fn [msg ts] (println [msg ts]))))
+  (midi-handle-events kdp (fn [msg ts] (println [msg ts])))
+  (def bach (midi-record-sequence kdp)))
 
 ;; will print things like:
 
