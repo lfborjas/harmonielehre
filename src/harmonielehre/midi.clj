@@ -399,7 +399,7 @@
 
   From the 'Recording and Saving Sequences' heading at:
   https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
-  [input]
+  [input out]
   (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
     (let [sequence    (Sequence. Sequence/PPQ 960 1)
           receiver    (.getReceiver sequencer)]
@@ -410,9 +410,12 @@
       (.setReceiver (:transmitter input) receiver)
       (.startRecording sequencer)
       ;; and then wait until we signal we're done recording
-      (while (.isRecording sequencer) (do (println "recording!")
-                                          (reset! spy sequence)
-                                          (Thread/sleep 2000)))
+      (while (.isRecording sequencer) (do 
+                                        (reset! out sequence)
+                                        (Thread/sleep 2000)))
+      ;; unfortunately, I didn't manage to make the right listeners
+      ;; work to capture a clean control change event and stop recording..
+      ;; so I'm currently simply killing the recording thread and using the spy atom :(
       sequence)))
 
 ;; connecting to my piano:
@@ -421,7 +424,7 @@
   (def kdp (midi-in "KDP110")) ;; this works due to the setup described earlier
   ;; creates a separate thread if not careful!
   (midi-handle-events kdp (fn [msg ts] (println [msg ts])))
-  (def bach (midi-record-sequence kdp)))
+  (def bach (midi-record-sequence kdp spy)))
 
 ;; will print things like:
 
