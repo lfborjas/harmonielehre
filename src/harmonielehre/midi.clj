@@ -194,6 +194,12 @@
                            :velocity 63,
                            :start-ts 78231356000,
                            :end-ts 78231478000}
+                          {:pitch :E,
+                           :octave 4,
+                           :duration 122000,
+                           :velocity 63,
+                           :start-ts 78231356000,
+                           :end-ts 78231478000}
                           {:duration 479000}
                           {:pitch :F,
                            :octave 4,
@@ -204,6 +210,12 @@
                           {:duration 619000}
                           {:pitch :Gs,
                            :octave 4,
+                           :duration 44000,
+                           :velocity 62,
+                           :start-ts 78232624000,
+                           :end-ts 78232668000}
+                          {:pitch :C,
+                           :octave 5,
                            :duration 44000,
                            :velocity 62,
                            :start-ts 78232624000,
