@@ -399,12 +399,3 @@
 ;; :note-off
 ;; harmonielehre.midi> (midi-shortmessage-command 176)
 ;; :control-change
-
-;; FUN WITH SEQUENCERS
-
-;; Note that I _could_ have simply wired an input device directly to a sequencer, like described here:
-;; https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html
-
-;; However, we would like to also be able to produce notes programmatically (from a UI, or simple
-;; clojure maps) and also have them end up in a sequence. Thus, doing that heavy work here.
-
