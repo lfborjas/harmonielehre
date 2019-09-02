@@ -182,6 +182,11 @@
   From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
   [notes tempo ppqn]
   (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
+    ;; TODO: support for multiple lists of notes.
+    ;; I believe we can already be very close:
+    ;; call notes->events on each list of notes
+    ;; simply concat (or zip) those events and give to events->sequence: the sequence knows to insert
+    ;; at the right place!
     (let [sequence  (-> notes (notes->events tempo ppqn) (events->sequence ppqn))]
       (.setSequence sequencer sequence)
       (.start sequencer)
