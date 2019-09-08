@@ -244,10 +244,8 @@
   From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html
   And : https://docs.oracle.com/javase/8/docs/api/javax/sound/midi/Sequencer.html#"
   ([notes]
-   (sequencer-perform notes {}))
-  ([notes {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
-   (sequencer-perform [notes] tempo ppqn))
-  ([lines tempo ppqn]
+   (sequencer-perform [notes] {}))
+  ([lines {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
    (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
      ;; TODO: support for multiple lists of notes.
      ;; I believe we can already be very close:
@@ -263,15 +261,16 @@
 
 (comment
   (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)])
-  (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)]
-                     {:tempo 240})
+
   (sequencer-perform [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)
                       (chord (note :C 4)
                              (note :E 4)
                              (note :G 4))])
+  (sequencer-perform [[(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)]]
+                     {:tempo 240})
   (def line-1 [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)  (note :E 5)])
   (def line-2 [(note :G 3) (note :A 3) (rest 1/4)  (note :B 4) (note :C 5)])
-  (sequencer-perform [line-1 line-2] 240 96))
+  (sequencer-perform [line-1 line-2] {:tempo 240}))
 
 (defn perform-from-sequence
   [sequenz]
