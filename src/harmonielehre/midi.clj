@@ -188,8 +188,9 @@
 (defn sequencer-perform
   "Takes a seq of notes, creates a sequence, loads it into the sequencer, and performs.
 
-  From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
-  [notes tempo ppqn]
+  From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html
+  And : https://docs.oracle.com/javase/8/docs/api/javax/sound/midi/Sequencer.html#"
+  [notes & {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
   (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
     ;; TODO: support for multiple lists of notes.
     ;; I believe we can already be very close:
@@ -198,11 +199,14 @@
     ;; at the right place!
     (let [sequence  (-> notes (notes->events ppqn) (events->sequence ppqn))]
       (.setSequence sequencer sequence)
+      (.setTempoInBPM sequencer tempo)
       (.start sequencer)
       (while (.isRunning sequencer) (Thread/sleep 2000)))))
 
 (comment
-  (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)]))
+  (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)])
+  (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)]
+                     :tempo 240))
 
 (defn perform-from-sequence
   [sequenz]
@@ -214,45 +218,6 @@
       (.start sequencer)
       (while (.isRunning sequencer) (Thread/sleep 2000)))))
 
-(comment
-  (def beethoven-fminor '({:pitch :C,
-                           :octave 4,
-                           :duration 122000,
-                           :velocity 63,
-                           :start-ts 78231356000,
-                           :end-ts 78231478000}
-                          {:pitch :E,
-                           :octave 4,
-                           :duration 122000,
-                           :velocity 63,
-                           :start-ts 78231356000,
-                           :end-ts 78231478000}
-                          {:duration 479000}
-                          {:pitch :F,
-                           :octave 4,
-                           :duration 48000,
-                           :velocity 82,
-                           :start-ts 78231957000,
-                           :end-ts 78232005000}
-                          {:duration 619000}
-                          {:pitch :Gs,
-                           :octave 4,
-                           :duration 44000,
-                           :velocity 62,
-                           :start-ts 78232624000,
-                           :end-ts 78232668000}
-                          {:pitch :C,
-                           :octave 5,
-                           :duration 44000,
-                           :velocity 62,
-                           :start-ts 78232624000,
-                           :end-ts 78232668000}))
-  ;; will apply the transformations necessary for sequencing,
-  ;; and play at 32 BPM (Grave) with a resolution of 96 pulses per quarter note.
-  (sequencer-perform beethoven-fminor 32 96))
-
-
-;; START OF COPY-PASTE
 ;; copied some useful functions from the midi-clj library:
 ;; https://github.com/rosejn/midi-clj/blob/dba91fb8f86e242cbd6e91c60b4dd0a27635314e/src/midi.clj
 ;; as illustrated in its README:
