@@ -247,11 +247,6 @@
    (sequencer-perform [notes] {}))
   ([lines {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
    (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
-     ;; TODO: support for multiple lists of notes.
-     ;; I believe we can already be very close:
-     ;; call notes->events on each list of notes
-     ;; simply concat (or zip) those events and give to events->sequence: the sequence knows to insert
-     ;; at the right place!
      (let [line-events (mapcat #(notes->events % ppqn) lines)
            sequence  (events->sequence line-events ppqn)]
        (.setSequence sequencer sequence)
