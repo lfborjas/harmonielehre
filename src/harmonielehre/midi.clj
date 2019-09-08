@@ -97,7 +97,10 @@
 
 (comment
   (perform [(note :C 4) (note :D 4) (note :E 4)
-            (note :C 5 1/16) (note :D 5 1/16) (note :E 5 1/16) (rest 1/4)]))
+            (note :C 5 1/16) (note :D 5 1/16) (note :E 5 1/16) (rest 1/4)])
+  (perform [(note :C 4) (note :D 4) (note :E 4)
+            (note :C 5 1/16) (note :D 5 1/16) (note :E 5 1/16) (rest 1/4)]
+           :tempo 32))
 
 ;; Transducer that transforms notes into events with absolute timestamps
 (def xevents
