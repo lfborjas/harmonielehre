@@ -238,29 +238,40 @@
 (defn sequencer-perform
   "Takes a seq of notes, creates a sequence, loads it into the sequencer, and performs.
 
+  It can either take a single line of music, or multiple lines in an array.
+  If given multiple lines, it'll play them in parallel.
+
   From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html
   And : https://docs.oracle.com/javase/8/docs/api/javax/sound/midi/Sequencer.html#"
-  [notes & {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
-  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
-    ;; TODO: support for multiple lists of notes.
-    ;; I believe we can already be very close:
-    ;; call notes->events on each list of notes
-    ;; simply concat (or zip) those events and give to events->sequence: the sequence knows to insert
-    ;; at the right place!
-    (let [sequence  (-> notes (notes->events ppqn) (events->sequence ppqn))]
-      (.setSequence sequencer sequence)
-      (.setTempoInBPM sequencer tempo)
-      (.start sequencer)
-      (while (.isRunning sequencer) (Thread/sleep 2000)))))
+  ([notes]
+   (sequencer-perform notes {:tempo 120 :ppqn 96}))
+  ([notes {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
+   (sequencer-perform [notes] tempo ppqn))
+  ([lines tempo ppqn]
+   (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
+     ;; TODO: support for multiple lists of notes.
+     ;; I believe we can already be very close:
+     ;; call notes->events on each list of notes
+     ;; simply concat (or zip) those events and give to events->sequence: the sequence knows to insert
+     ;; at the right place!
+     (let [line-events (mapcat #(notes->events % ppqn) lines)
+           sequence  (events->sequence line-events ppqn)]
+       (.setSequence sequencer sequence)
+       (.setTempoInBPM sequencer tempo)
+       (.start sequencer)
+       (while (.isRunning sequencer) (Thread/sleep 2000))))))
 
 (comment
   (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)])
   (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)]
-                     :tempo 240)
+                     {:tempo 240})
   (sequencer-perform [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)
                       (chord (note :C 4)
                              (note :E 4)
-                             (note :G 4))]))
+                             (note :G 4))])
+  (def line-1 [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)  (note :E 5)])
+  (def line-2 [(note :G 3) (note :A 3) (rest 1/4)  (note :B 4) (note :C 5)])
+  (sequencer-perform [line-1 line-2] 240 96))
 
 (defn perform-from-sequence
   [sequenz]
