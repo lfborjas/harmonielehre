@@ -60,7 +60,7 @@
 (defrecord Rest [duration]
   MidiNote
   ;; 123 is MIDI for all notes off but... not using it for exactly that
-  (key-number [this] 123)
+  (key-number [this] -1)
   ;; "playing" a rest is simply blocking the channel's thread doing nothing
   ;; for a few milliseconds (MIDI has no use, or notation, for rests)
   (play [this _ ppqn tempo]
@@ -102,63 +102,47 @@
             (note :C 5 1/16) (note :D 5 1/16) (note :E 5 1/16) (rest 1/4)]
            :tempo 32))
 
-;; Transducer that transforms notes into events with absolute timestamps
-(def xevents
-  (comp
-   ;; remove silences
-   (remove #(not (contains? % :pitch)))
-   ;; add (absolute pitch)
-   (map    #(assoc % :note (kernel/pitch->abs-pitch (map % [:pitch :octave]))))
-   ;; split each note into note-on/note-off commands
-   (mapcat #(vector (merge % {:cmd :note-on  :ts (:start-ts %)})
-                    (merge % {:cmd :note-off :ts (:end-ts   %)})))))
+(defn add-ticks
+  "Stateful transducer that adds cumulative ticks to a given sequence
 
-(defn us->tick
-  "Given a microsecond timestamp, a tempo and a resolution
-  return the MIDI tick equivalent
+  My first transducer! The docs do a good job explaining it:
+  https://clojure.org/reference/transducers#_creating_transducers"
+  ([ppqn]
+   (fn [xf]
+     (let [prev (volatile! 0)]
+       (fn
+         ([] (xf))
+         ([result] (xf result))
+         ([result input]
+          (let [prior @prev
+                ts (ticks (:duration input) ppqn)
+                nv (vswap! prev #(+ ts %))]
+            (xf result (merge input {:start-tick prior :end-tick nv}))))))))
+  ([notes ppqn] (sequence (add-ticks ppqn) notes)))
 
-  Formula from:
-  https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-intro.html
-  Note that we're assuming cumulative time, which the Java MIDI utilities
-  seem to use, instead of delta time, which is more standard MIDI."
-  [ts bpm ppqn]
-  (let [ticks-per-second (* ppqn
-                            ;; the Java tutorial says bpm/60
-                            ;; however, I don't think I want beats per second
-                            ;; but rather... seconds per beat?
-                            ;; all I know is that this gives me
-                            ;; bigger numbers the slower the tempo
-                            ;; e.g. 60/32 = 1.875
-                            ;; 60/120 = 0.5
-                            ;; i.e. in a slower tempo, a tick
-                            ;; should have a greater value, because
-                            ;; it's slower to be reached.
-                            (/ 60 bpm))
-        tick-size (/ 1 ticks-per-second)
-        us->s     (/ ts 1E+6)]
-    (long (/ us->s tick-size))))
+(comment
+  (add-ticks [(note :C 4) (note :D 4)] 96))
 
 (defn notes->events
-  "Creates a sequence of MIDI events based on a collection of notes and tempo
+  "Creates a sequence of maps ready to be sequenced as MIDI.
 
-  It will try to use the notes' duration, or the more accurate start/end timestamps,
-  if available.
+  Involves calculating the key number (absolute pitch) and ticks of each event,
+  and removing any rests (since rests are only useful for timing and not part of
+  actual MIDI)"
+  [notes ppqn]
+  (let [xevents (comp
+                 ;; add absolute pitch (MIDI key number)
+                 (map #(assoc % :note (key-number %)))
+                 ;; add start and end ticks
+                 (add-ticks ppqn)
+                 ;; remove silences
+                 (remove #(= -1 (key-number %)))
+                 (mapcat #(vector (merge % {:cmd :note-on  :tick (:start-tick %)})
+                                  (merge % {:cmd :note-off :tick (:end-tick %)}))))]
+    (sequence xevents notes)))
 
-
-  Based on: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html#124674
-  And: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-intro.html"
-  [notes tempo ppqn]
-  (let [beginning (:start-ts (first notes))
-        xticks (comp
-                xevents
-                ;; make timestamps relative to the beginning
-                (map #(merge % {:ts (- (:ts %) beginning)}))
-                ;; determine tick relative to tempo and resolution
-                (map #(merge % {:tick (us->tick (:ts %) tempo ppqn)})))]
-    ;; could also use sequence or eduction?
-    (sequence xticks notes)))
-
-
+(comment
+  (notes->events [(note :C 4) (note :D 4) (rest 1/4) (note :E 4)] 96))
 
 (defn event->short-message
   "Creates a MIDI ShortMessage based on an event"
@@ -166,8 +150,11 @@
   (doto (ShortMessage.)
     (.setMessage (commands (:cmd event))
                  (get event :chan 0)
-                 (event     :note)
-                 (event     :velocity))))
+                 (:note event)
+                 (:velocity event))))
+
+(comment
+  (event->short-message (first (notes->events [(note :C 4)] 96))))
 
 (defn events->sequence
   "Create a MIDI sequence given a seq of events. Adds events to
@@ -209,10 +196,13 @@
     ;; call notes->events on each list of notes
     ;; simply concat (or zip) those events and give to events->sequence: the sequence knows to insert
     ;; at the right place!
-    (let [sequence  (-> notes (notes->events tempo ppqn) (events->sequence ppqn))]
+    (let [sequence  (-> notes (notes->events ppqn) (events->sequence ppqn))]
       (.setSequence sequencer sequence)
       (.start sequencer)
       (while (.isRunning sequencer) (Thread/sleep 2000)))))
+
+(comment
+  (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)]))
 
 (defn perform-from-sequence
   [sequenz]
