@@ -34,6 +34,13 @@
   (key-number [this])
   (play [this midi-channel ppqn tempo]))
 
+(defprotocol Music
+  ;; meant to return the single notes representing
+  ;; this musical value; can optionally merge any
+  ;; "attrs to inherit" into each note.
+  (units [this attrs-to-inherit])
+  (dur   [this]))
+
 (defn ticks->ms
   "Given a number of ticks, a resolution and a tempo (in BPM), calculate how many miliseconds
   it takes to perform."
@@ -64,7 +71,10 @@
   ;; "playing" a rest is simply blocking the channel's thread doing nothing
   ;; for a few milliseconds (MIDI has no use, or notation, for rests)
   (play [this _ ppqn tempo]
-    (Thread/sleep (dur->ms (:duration this) ppqn tempo))))
+    (Thread/sleep (dur->ms (:duration this) ppqn tempo)))
+  Music
+  (units [this _] [])
+  (dur   [this] (:duration this)))
 
 (defn rest
   "Create a musical rest"
@@ -80,7 +90,10 @@
       ;; immediately start playing the note
       (.noteOn midi-channel (key-number this) velocity)
       (Thread/sleep (dur->ms (:duration this) ppqn tempo))
-      (.noteOff midi-channel (key-number this) velocity))))
+      (.noteOff midi-channel (key-number this) velocity)))
+  Music
+  (units [this _] [this])
+  (dur   [this] (:duration this)))
 
 (defn note
   "Create a musical note"
@@ -88,7 +101,38 @@
   ([p o d  ] (note p o d 67))
   ([p o    ] (note p o 1/4 67)))
 
+(defrecord Chord [pitches]
+  MidiNote
+  (key-number [this]
+    (map key-number (:pitches this)))
+  (play [this midi-channel ppqn tempo]
+    (doseq [n (:pitches this)]
+      (.noteOn midi-channel (key-number n) (:velocity n)))
+    (Thread/sleep (dur->ms (dur this) ppqn tempo))
+    (doseq [n (:pitches this)]
+      (.noteOff midi-channel (key-number n) 0)))
+  Music
+  (units [this attrs-to-inherit]
+    (let [to-merge (apply hash-map
+                          (mapcat #(vector % (get this %)) attrs-to-inherit))]
+      (map #(merge % to-merge) (:pitches this))))
+  (dur   [this] (apply max (map dur (:pitches this)))))
+
+(defn chord
+  "Create a chord, which is just an array of notes that share a duration/velocity"
+  ([& ps] (->Chord ps)))
+
+(comment
+  (def c-maj (chord (note :C 4) (note :E 4) (note :G 4)))
+  (def e-maj (chord (note :E 4) (note :G 4) (note :B 4)))
+  (dur c-maj)
+  (units (assoc c-maj :swing true) [:swing])
+  (perform [c-maj e-maj]))
+
 (defn perform
+  "Perform a sequence of notes without creating a sequence, best for interactive development.
+
+  But to get actual MIDI calculations, use sequencer-perform."
   ([notes & {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
    (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
      (let [channel (aget (.getChannels synth) 0)]
@@ -115,7 +159,7 @@
          ([result] (xf result))
          ([result input]
           (let [prior @prev
-                ts (ticks (:duration input) ppqn)
+                ts (ticks (dur input) ppqn)
                 nv (vswap! prev #(+ ts %))]
             (xf result (merge input {:start-tick prior :end-tick nv}))))))))
   ([notes ppqn] (sequence (add-ticks ppqn) notes)))
@@ -131,18 +175,24 @@
   actual MIDI)"
   [notes ppqn]
   (let [xevents (comp
+                 ;; add start and end ticks (all notes
+                 ;; in a chord ought to have the same tick)
+                 (add-ticks ppqn)
+                 ;; remove silences, split chords
+                 (mapcat #(units % [:start-tick :end-tick]))
                  ;; add absolute pitch (MIDI key number)
                  (map #(assoc % :note (key-number %)))
-                 ;; add start and end ticks
-                 (add-ticks ppqn)
-                 ;; remove silences
-                 (remove #(= -1 (key-number %)))
+                 ;; split each note into on/off events
                  (mapcat #(vector (merge % {:cmd :note-on  :tick (:start-tick %)})
                                   (merge % {:cmd :note-off :tick (:end-tick %)}))))]
     (sequence xevents notes)))
 
 (comment
-  (notes->events [(note :C 4) (note :D 4) (rest 1/4) (note :E 4)] 96))
+  (notes->events [(note :C 4) (note :D 4) (rest 1/4) (note :E 4)] 96)
+  (notes->events [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)
+                  (chord (note :C 4)
+                         (note :E 4)
+                         (note :G 4))] 96))
 
 (defn event->short-message
   "Creates a MIDI ShortMessage based on an event"
@@ -206,7 +256,11 @@
 (comment
   (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)])
   (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)]
-                     :tempo 240))
+                     :tempo 240)
+  (sequencer-perform [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)
+                      (chord (note :C 4)
+                             (note :E 4)
+                             (note :G 4))]))
 
 (defn perform-from-sequence
   [sequenz]
