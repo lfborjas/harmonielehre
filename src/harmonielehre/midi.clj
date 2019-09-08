@@ -32,25 +32,30 @@
 
 (defprotocol MidiNote
   (key-number [this])
-  (play [this midi-channel tempo]))
+  (play [this midi-channel ppqn tempo]))
 
-(defn dur->msec
-  "Given a fractional description of a note and a tempo, return a millisecond value"
-  [dur tempo]
-  (let [duration-to-bpm {1 240, 1/2 120, 1/4 60, 1/8 30, 1/16 15}]
-    (* 1000 (/ (duration-to-bpm dur)
-               tempo))))
+(defn ticks->ms
+  "Given a number of ticks, a resolution and a tempo (in BPM), calculate how many miliseconds
+  it takes to perform."
+  [ticks ppqn bpm]
+  (let [ticks-per-second (* ppqn (/ bpm 60))
+        us               (* (/ ticks ticks-per-second) 1000)]
+    (float ms)))
 
-;; TODO: implement this one too!
-#_(defn msec->dur
-    "Given a duration in milliseconds, return it relative to a tempo"
-    [ms tempo]
-    (womp))
+(defn ticks
+  "Given a resolution and a fractional musical value, how many ticks would that value take
+  This assumes that the fractional value is relative to a beat of 1 quarter note."
+  [dur ppqn]
+  (let [dur-in-qn (/ dur 1/4)]
+    (int  (* ppqn dur-in-qn))))
 
-(defn scale-dur
-  "Given an object with duration, and a tempo scale, return a value in millis"
-  [m s]
-  (/ (:duration m) (* 1000 s)))
+(defn dur->ms
+  "Given a fractional duration, a resolution and a tempo, determine how many ms it would take
+  to perform it"
+  [dur ppqn bpm]
+  (-> dur
+      (ticks ppqn)
+      (ticks->ms ppqn bpm)))
 
 (defrecord Rest [duration]
   MidiNote
@@ -58,36 +63,41 @@
   (key-number [this] 123)
   ;; "playing" a rest is simply blocking the channel's thread doing nothing
   ;; for a few milliseconds (MIDI has no use, or notation, for rests)
-  (play [this _ tempo]
-    (Thread/sleep (scale-dur this tempo))))
+  (play [this _ ppqn tempo]
+    (Thread/sleep (dur->ms (:duration this) ppqn tempo))))
+
+(defn rest
+  "Create a musical rest"
+  [dur]
+  (->Rest dur))
 
 (defrecord Note [pitch octave duration velocity]
   MidiNote
   (key-number [this]
     (kernel/pitch->abs-pitch [(:pitch this) (:octave this)]))
-  (play [this midi-channel tempo]
+  (play [this midi-channel ppqn tempo]
     (let [velocity (or (:velocity this) 64)]
       ;; immediately start playing the note
       (.noteOn midi-channel (key-number this) velocity)
-      (Thread/sleep (scale-dur this tempo))
+      (Thread/sleep (dur->ms (:duration this) ppqn tempo))
       (.noteOff midi-channel (key-number this) velocity))))
 
+(defn note
+  "Create a musical note"
+  ([p o d v] (->Note p o d v))
+  ([p o d  ] (note p o d 67))
+  ([p o    ] (note p o 1/4 67)))
+
 (defn perform
-  "Plays a seq of notes live, scaled by a given tempo"
-  ;; TODO: this currently plays notes in sequence,
-  ;; which is good for my purposes currently but, hilariously,
-  ;; precludes the playing of chords! Seek inspiration in
-  ;; Euterpea to solve this: https://github.com/Euterpea/Euterpea2/tree/master/Euterpea
-  [notes & {:keys [tempo] :or {tempo 1}}]
-  (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
-    (let [channel (aget (.getChannels synth) 0)]
-      (doseq [note notes]
-        (play note channel tempo)))))
+  ([notes & {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
+   (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
+     (let [channel (aget (.getChannels synth) 0)]
+       (doseq [note notes]
+         (play note channel ppqn tempo))))))
 
 (comment
-  (perform [(->Note :C 4 131000 125)
-            (->Note :D 4 (dur->msec 1/2 88) 64)
-            (->Note :E 4 (dur->msec 1/4 88) 64)] :tempo 1/4))
+  (perform [(note :C 4) (note :D 4) (note :E 4)
+            (note :C 5 1/16) (note :D 5 1/16) (note :E 5 1/16) (rest 1/4)]))
 
 ;; Transducer that transforms notes into events with absolute timestamps
 (def xevents
