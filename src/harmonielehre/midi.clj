@@ -244,7 +244,7 @@
   From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html
   And : https://docs.oracle.com/javase/8/docs/api/javax/sound/midi/Sequencer.html#"
   ([notes]
-   (sequencer-perform notes {:tempo 120 :ppqn 96}))
+   (sequencer-perform notes {}))
   ([notes {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
    (sequencer-perform [notes] tempo ppqn))
   ([lines tempo ppqn]
