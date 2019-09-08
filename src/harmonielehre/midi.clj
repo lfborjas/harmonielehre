@@ -39,7 +39,7 @@
   it takes to perform."
   [ticks ppqn bpm]
   (let [ticks-per-second (* ppqn (/ bpm 60))
-        us               (* (/ ticks ticks-per-second) 1000)]
+        ms               (* (/ ticks ticks-per-second) 1000)]
     (float ms)))
 
 (defn ticks
