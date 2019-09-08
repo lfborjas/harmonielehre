@@ -32,120 +32,167 @@
 
 (defprotocol MidiNote
   (key-number [this])
-  (play [this midi-channel tempo]))
+  (play [this midi-channel ppqn tempo]))
 
-(defn dur->msec
-  "Given a fractional description of a note and a tempo, return a millisecond value"
-  [dur tempo]
-  (let [duration-to-bpm {1 240, 1/2 120, 1/4 60, 1/8 30, 1/16 15}]
-    (* 1000 (/ (duration-to-bpm dur)
-               tempo))))
+(defprotocol Music
+  ;; meant to return the single notes representing
+  ;; this musical value; can optionally merge any
+  ;; "attrs to inherit" into each note.
+  (units [this attrs-to-inherit])
+  (dur   [this]))
 
-;; TODO: implement this one too!
-#_(defn msec->dur
-    "Given a duration in milliseconds, return it relative to a tempo"
-    [ms tempo]
-    (womp))
+(defn ticks->ms
+  "Given a number of ticks, a resolution and a tempo (in BPM), calculate how many miliseconds
+  it takes to perform."
+  [ticks ppqn bpm]
+  (let [ticks-per-second (* ppqn (/ bpm 60))
+        ms               (* (/ ticks ticks-per-second) 1000)]
+    (float ms)))
 
-(defn scale-dur
-  "Given an object with duration, and a tempo scale, return a value in millis"
-  [m s]
-  (/ (:duration m) (* 1000 s)))
+(defn ticks
+  "Given a resolution and a fractional musical value, how many ticks would that value take
+  This assumes that the fractional value is relative to a beat of 1 quarter note."
+  [dur ppqn]
+  (let [dur-in-qn (/ dur 1/4)]
+    (int  (* ppqn dur-in-qn))))
+
+(defn dur->ms
+  "Given a fractional duration, a resolution and a tempo, determine how many ms it would take
+  to perform it"
+  [dur ppqn bpm]
+  (-> dur
+      (ticks ppqn)
+      (ticks->ms ppqn bpm)))
 
 (defrecord Rest [duration]
   MidiNote
   ;; 123 is MIDI for all notes off but... not using it for exactly that
-  (key-number [this] 123)
+  (key-number [this] -1)
   ;; "playing" a rest is simply blocking the channel's thread doing nothing
   ;; for a few milliseconds (MIDI has no use, or notation, for rests)
-  (play [this _ tempo]
-    (Thread/sleep (scale-dur this tempo))))
+  (play [this _ ppqn tempo]
+    (Thread/sleep (dur->ms (:duration this) ppqn tempo)))
+  Music
+  (units [this _] [])
+  (dur   [this] (:duration this)))
+
+(defn rest
+  "Create a musical rest"
+  [dur]
+  (->Rest dur))
 
 (defrecord Note [pitch octave duration velocity]
   MidiNote
   (key-number [this]
     (kernel/pitch->abs-pitch [(:pitch this) (:octave this)]))
-  (play [this midi-channel tempo]
+  (play [this midi-channel ppqn tempo]
     (let [velocity (or (:velocity this) 64)]
       ;; immediately start playing the note
       (.noteOn midi-channel (key-number this) velocity)
-      (Thread/sleep (scale-dur this tempo))
-      (.noteOff midi-channel (key-number this) velocity))))
+      (Thread/sleep (dur->ms (:duration this) ppqn tempo))
+      (.noteOff midi-channel (key-number this) velocity)))
+  Music
+  (units [this _] [this])
+  (dur   [this] (:duration this)))
 
-(defn perform
-  "Plays a seq of notes live, scaled by a given tempo"
-  ;; TODO: this currently plays notes in sequence,
-  ;; which is good for my purposes currently but, hilariously,
-  ;; precludes the playing of chords! Seek inspiration in
-  ;; Euterpea to solve this: https://github.com/Euterpea/Euterpea2/tree/master/Euterpea
-  [notes & {:keys [tempo] :or {tempo 1}}]
-  (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
-    (let [channel (aget (.getChannels synth) 0)]
-      (doseq [note notes]
-        (play note channel tempo)))))
+(defn note
+  "Create a musical note"
+  ([p o d v] (->Note p o d v))
+  ([p o d  ] (note p o d 67))
+  ([p o    ] (note p o 1/4 67)))
+
+(defrecord Chord [pitches]
+  MidiNote
+  (key-number [this]
+    (map key-number (:pitches this)))
+  (play [this midi-channel ppqn tempo]
+    (doseq [n (:pitches this)]
+      (.noteOn midi-channel (key-number n) (:velocity n)))
+    (Thread/sleep (dur->ms (dur this) ppqn tempo))
+    (doseq [n (:pitches this)]
+      (.noteOff midi-channel (key-number n) 0)))
+  Music
+  (units [this attrs-to-inherit]
+    (let [to-merge (apply hash-map
+                          (mapcat #(vector % (get this %)) attrs-to-inherit))]
+      (map #(merge % to-merge) (:pitches this))))
+  (dur   [this] (apply max (map dur (:pitches this)))))
+
+(defn chord
+  "Create a chord, which is just an array of notes that share a duration/velocity"
+  ([& ps] (->Chord ps)))
 
 (comment
-  (perform [(->Note :C 4 131000 125)
-            (->Note :D 4 (dur->msec 1/2 88) 64)
-            (->Note :E 4 (dur->msec 1/4 88) 64)] :tempo 1/4))
+  (def c-maj (chord (note :C 4) (note :E 4) (note :G 4)))
+  (def e-maj (chord (note :E 4) (note :G 4) (note :B 4)))
+  (dur c-maj)
+  (units (assoc c-maj :swing true) [:swing])
+  (perform [c-maj e-maj]))
 
-;; Transducer that transforms notes into events with absolute timestamps
-(def xevents
-  (comp
-   ;; remove silences
-   (remove #(not (contains? % :pitch)))
-   ;; add (absolute pitch)
-   (map    #(assoc % :note (kernel/pitch->abs-pitch (map % [:pitch :octave]))))
-   ;; split each note into note-on/note-off commands
-   (mapcat #(vector (merge % {:cmd :note-on  :ts (:start-ts %)})
-                    (merge % {:cmd :note-off :ts (:end-ts   %)})))))
+(defn perform
+  "Perform a sequence of notes without creating a sequence, best for interactive development.
 
-(defn us->tick
-  "Given a microsecond timestamp, a tempo and a resolution
-  return the MIDI tick equivalent
+  But to get actual MIDI calculations, use sequencer-perform."
+  ([notes & {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
+   (with-open [synth (doto (MidiSystem/getSynthesizer) .open)]
+     (let [channel (aget (.getChannels synth) 0)]
+       (doseq [note notes]
+         (play note channel ppqn tempo))))))
 
-  Formula from:
-  https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-intro.html
-  Note that we're assuming cumulative time, which the Java MIDI utilities
-  seem to use, instead of delta time, which is more standard MIDI."
-  [ts bpm ppqn]
-  (let [ticks-per-second (* ppqn
-                            ;; the Java tutorial says bpm/60
-                            ;; however, I don't think I want beats per second
-                            ;; but rather... seconds per beat?
-                            ;; all I know is that this gives me
-                            ;; bigger numbers the slower the tempo
-                            ;; e.g. 60/32 = 1.875
-                            ;; 60/120 = 0.5
-                            ;; i.e. in a slower tempo, a tick
-                            ;; should have a greater value, because
-                            ;; it's slower to be reached.
-                            (/ 60 bpm))
-        tick-size (/ 1 ticks-per-second)
-        us->s     (/ ts 1E+6)]
-    (long (/ us->s tick-size))))
+(comment
+  (perform [(note :C 4) (note :D 4) (note :E 4)
+            (note :C 5 1/16) (note :D 5 1/16) (note :E 5 1/16) (rest 1/4)])
+  (perform [(note :C 4) (note :D 4) (note :E 4)
+            (note :C 5 1/16) (note :D 5 1/16) (note :E 5 1/16) (rest 1/4)]
+           :tempo 32))
+
+(defn add-ticks
+  "Stateful transducer that adds cumulative ticks to a given sequence
+
+  My first transducer! The docs do a good job explaining it:
+  https://clojure.org/reference/transducers#_creating_transducers"
+  ([ppqn]
+   (fn [xf]
+     (let [prev (volatile! 0)]
+       (fn
+         ([] (xf))
+         ([result] (xf result))
+         ([result input]
+          (let [prior @prev
+                ts (ticks (dur input) ppqn)
+                nv (vswap! prev #(+ ts %))]
+            (xf result (merge input {:start-tick prior :end-tick nv}))))))))
+  ([notes ppqn] (sequence (add-ticks ppqn) notes)))
+
+(comment
+  (add-ticks [(note :C 4) (note :D 4)] 96))
 
 (defn notes->events
-  "Creates a sequence of MIDI events based on a collection of notes and tempo
+  "Creates a sequence of maps ready to be sequenced as MIDI.
 
-  It will try to use the notes' duration, or the more accurate start/end timestamps,
-  if available.
+  Involves calculating the key number (absolute pitch) and ticks of each event,
+  and removing any rests (since rests are only useful for timing and not part of
+  actual MIDI)"
+  [notes ppqn]
+  (let [xevents (comp
+                 ;; add start and end ticks (all notes
+                 ;; in a chord ought to have the same tick)
+                 (add-ticks ppqn)
+                 ;; remove silences, split chords
+                 (mapcat #(units % [:start-tick :end-tick]))
+                 ;; add absolute pitch (MIDI key number)
+                 (map #(assoc % :note (key-number %)))
+                 ;; split each note into on/off events
+                 (mapcat #(vector (merge % {:cmd :note-on  :tick (:start-tick %)})
+                                  (merge % {:cmd :note-off :tick (:end-tick %)}))))]
+    (sequence xevents notes)))
 
-
-  Based on: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html#124674
-  And: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-intro.html"
-  [notes tempo ppqn]
-  (let [beginning (:start-ts (first notes))
-        xticks (comp
-                xevents
-                ;; make timestamps relative to the beginning
-                (map #(merge % {:ts (- (:ts %) beginning)}))
-                ;; determine tick relative to tempo and resolution
-                (map #(merge % {:tick (us->tick (:ts %) tempo ppqn)})))]
-    ;; could also use sequence or eduction?
-    (sequence xticks notes)))
-
-
+(comment
+  (notes->events [(note :C 4) (note :D 4) (rest 1/4) (note :E 4)] 96)
+  (notes->events [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)
+                  (chord (note :C 4)
+                         (note :E 4)
+                         (note :G 4))] 96))
 
 (defn event->short-message
   "Creates a MIDI ShortMessage based on an event"
@@ -153,8 +200,11 @@
   (doto (ShortMessage.)
     (.setMessage (commands (:cmd event))
                  (get event :chan 0)
-                 (event     :note)
-                 (event     :velocity))))
+                 (:note event)
+                 (:velocity event))))
+
+(comment
+  (event->short-message (first (notes->events [(note :C 4)] 96))))
 
 (defn events->sequence
   "Create a MIDI sequence given a seq of events. Adds events to
@@ -188,18 +238,34 @@
 (defn sequencer-perform
   "Takes a seq of notes, creates a sequence, loads it into the sequencer, and performs.
 
-  From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html"
-  [notes tempo ppqn]
-  (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
-    ;; TODO: support for multiple lists of notes.
-    ;; I believe we can already be very close:
-    ;; call notes->events on each list of notes
-    ;; simply concat (or zip) those events and give to events->sequence: the sequence knows to insert
-    ;; at the right place!
-    (let [sequence  (-> notes (notes->events tempo ppqn) (events->sequence ppqn))]
-      (.setSequence sequencer sequence)
-      (.start sequencer)
-      (while (.isRunning sequencer) (Thread/sleep 2000)))))
+  It can either take a single line of music, or multiple lines in an array.
+  If given multiple lines, it'll play them in parallel.
+
+  From: https://docs.oracle.com/javase/tutorial/sound/MIDI-seq-methods.html
+  And : https://docs.oracle.com/javase/8/docs/api/javax/sound/midi/Sequencer.html#"
+  ([notes]
+   (sequencer-perform [notes] {}))
+  ([lines {:keys [tempo ppqn] :or {tempo 120 ppqn 96}}]
+   (with-open [sequencer (doto (MidiSystem/getSequencer) .open)]
+     (let [line-events (mapcat #(notes->events % ppqn) lines)
+           sequence  (events->sequence line-events ppqn)]
+       (.setSequence sequencer sequence)
+       (.setTempoInBPM sequencer tempo)
+       (.start sequencer)
+       (while (.isRunning sequencer) (Thread/sleep 2000))))))
+
+(comment
+  (sequencer-perform [(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)])
+
+  (sequencer-perform [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)
+                      (chord (note :C 4)
+                             (note :E 4)
+                             (note :G 4))])
+  (sequencer-perform [[(note :C 4) (note :D 4) (rest 1/4) (note :E 4) (rest 1/4) (note :F 4)]]
+                     {:tempo 240})
+  (def line-1 [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)  (note :E 5)])
+  (def line-2 [(note :G 3) (note :A 3) (rest 1/4)  (note :B 4) (note :C 5)])
+  (sequencer-perform [line-1 line-2] {:tempo 240}))
 
 (defn perform-from-sequence
   [sequenz]
@@ -211,45 +277,6 @@
       (.start sequencer)
       (while (.isRunning sequencer) (Thread/sleep 2000)))))
 
-(comment
-  (def beethoven-fminor '({:pitch :C,
-                           :octave 4,
-                           :duration 122000,
-                           :velocity 63,
-                           :start-ts 78231356000,
-                           :end-ts 78231478000}
-                          {:pitch :E,
-                           :octave 4,
-                           :duration 122000,
-                           :velocity 63,
-                           :start-ts 78231356000,
-                           :end-ts 78231478000}
-                          {:duration 479000}
-                          {:pitch :F,
-                           :octave 4,
-                           :duration 48000,
-                           :velocity 82,
-                           :start-ts 78231957000,
-                           :end-ts 78232005000}
-                          {:duration 619000}
-                          {:pitch :Gs,
-                           :octave 4,
-                           :duration 44000,
-                           :velocity 62,
-                           :start-ts 78232624000,
-                           :end-ts 78232668000}
-                          {:pitch :C,
-                           :octave 5,
-                           :duration 44000,
-                           :velocity 62,
-                           :start-ts 78232624000,
-                           :end-ts 78232668000}))
-  ;; will apply the transformations necessary for sequencing,
-  ;; and play at 32 BPM (Grave) with a resolution of 96 pulses per quarter note.
-  (sequencer-perform beethoven-fminor 32 96))
-
-
-;; START OF COPY-PASTE
 ;; copied some useful functions from the midi-clj library:
 ;; https://github.com/rosejn/midi-clj/blob/dba91fb8f86e242cbd6e91c60b4dd0a27635314e/src/midi.clj
 ;; as illustrated in its README:
