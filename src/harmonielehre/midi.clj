@@ -194,6 +194,19 @@
                          (note :E 4)
                          (note :G 4))] 96))
 
+(defn from-key-number
+  [key-number]
+  (let [[p o] (kernel/abs-pitch->pitch key-number)]
+    {:pitch p :octave o}))
+
+(defn events->notes
+  "Given maps representing midi events (message data + tick) generate
+  an abstract musical representation (notes with pitches, duration, rests, chords)"
+  [events ppqn]
+  (let [xnotes (comp
+                ;; get the pitch and octave
+                (map #(merge % (from-key-number %))))]))
+
 (defn event->short-message
   "Creates a MIDI ShortMessage based on an event"
   [event]
@@ -227,13 +240,41 @@
                               (:tick event))))
     sequence))
 
-#_(defn normalize-sequence
-    "Given a raw MIDI sequence recorded live, normalize (remove control changes, reset ticks)"
-    [s]
-    (let [new-seq (Sequence. Sequence/PPQ (.getResolution s) 1)
-          track   (first (.getTracks new-seq))
-          first-tick (.getTick (.get (first .getTracks s) 0))]
-      (doseq [])))
+
+(defn sequence->events
+  "Given a MIDI sequence, return a raw event seq"
+  [sqn]
+  (let [track (first (.getTracks sqn))
+        ;; we don't want the last element of the track:
+        ;; it's the special "end of track" midi event.
+        n-events (dec (.size track))]
+    (for [n-event (range n-events)]
+      (let [evt   (.get track n-event)
+            msg   (.getMessage evt)
+            tick  (.getTick    evt)]
+        (assoc (midi-msg msg) :tick tick)))))
+
+(defn normalize-events
+  "Make ticks relative to the first event, drop known 'stop' commands "
+  [events]
+  (let [beginning (:tick (first events))
+        xnorm
+        (comp
+         ;; it's a pedal command, we're ignoring those for now
+         ;; could also check data1 (or note) for 67, since that's
+         ;; the true "stop" command in our recording facility.
+         (remove #(= 176 (:cmd %)))
+         (map #(merge % {:tick (- (:tick %) beginning)})))]
+    (sequence xnorm events)))
+
+
+(defn sequence->notes
+  [sqn]
+  (-> sqn
+      sequence->events
+      normalize-events
+      events->notes))
+
 
 (defn sequencer-perform
   "Takes a seq of notes, creates a sequence, loads it into the sequencer, and performs.
@@ -266,6 +307,7 @@
   (def line-1 [(note :C 4) (note :E 4) (note :G 4) (rest 1/4)  (note :E 5)])
   (def line-2 [(note :G 3) (note :A 3) (rest 1/4)  (note :B 4) (note :C 5)])
   (sequencer-perform [line-1 line-2] {:tempo 240}))
+
 
 (defn perform-from-sequence
   [sequenz]
