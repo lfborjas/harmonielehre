@@ -161,8 +161,7 @@
   (l/all
    (noteo xpc xo xap)
    (noteo ypc yo yap)
-   (l/conde [(fd/- xap yap distance)]
-            [(fd/- yap xap distance)])))
+   (fd/- yap xap distance)))
 
 (comment
   (l/run* [q u x]
@@ -229,25 +228,24 @@
 
 
          (l/run* [c x y z]
-           (l/fresh [c2 c3 x1 x3 y1  y3 z1 z3]
-             (l/== x [x1 c2 x3])
-             (l/== y [y1 c2 y3])
-             (l/== z [z1 c2 z3])
+           (l/fresh [c2 c3 x1 x2 x3 y1 y2 y3 z1 z2 z3]
+             (l/== x [x1 x2 x3])
+             (l/== y [y1 y2 y3])
+             (l/== z [z1 z2 z3])
              (l/== c [:C c2 c3])
              (l/conde [(l/== 4 c2)] [(l/== 5 c2)])
              (chordo  :maj
                       c
-                      [x1 c2 x3]
-                      [y1 c2 y3]
-                      [z1 c2 z3]))) ;; what are all the inversions of C major in octaves 4 and 5?
+                      [x1 x2 x3]
+                      [y1 y2 y3]
+                      [z1 z2 z3]))) ;; what are all the inversions of C major in octaves 4 and 5?
 
          (l/run* [q]
            (l/fresh [x y] (intervalo q
                                      [:E, 4, x]
-                                     [:G, 4, y])))
+                                     [:G, 4, y]))) ;; what's the interval between E4 and G4?
 
-         (l/run 5 [xp xo xa yp yo ya zp zo za]
-           (major-triado [xp xo xa] [yp yo ya] [zp zo za])) ;; get 5 possible major triads
-)
+
+         )
 
 
